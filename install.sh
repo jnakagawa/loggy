@@ -51,6 +51,6 @@ cat prompt.txt
 echo "----------------------------------------"
 
 # Open Claude Code
-claude-code .
+claude .
 
 echo "✅ Loggy is ready! Copy the prompt above and paste it into Claude Code."
