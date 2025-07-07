@@ -10,20 +10,18 @@
 ║  ███████╗╚██████╔╝╚██████╔╝╚██████╔╝  ██║                                            ║
 ║  ╚══════╝ ╚═════╝  ╚═════╝  ╚═════╝   ╚═╝                                            ║
 ║                                                                                      ║
-║               🪵 Interactive Event Documentation Generator   🪵                       ║
+║               🪵 Event Documentation Generator 🪵                                     ║
 ║                                                                                      ║
 ║               "It's logging time :)"                                                 ║
 ║                                                                                      ║
 ╚══════════════════════════════════════════════════════════════════════════════════════╝
 ```
 
-
-Claude Code Skin for interactive event documentation generator for GitHub repos and BigQuery datasets.
+Claude Code Skin for repo-driven documentation of BigQuery event datasets.
 
 ## What it does
 
-Analyzes your codebase and generates comprehensive documentation for analytics events, then writes the descriptions back to BigQuery.
-Given a set of event based tables (from Bigquery), Loggy ingests the github codebase repo and generates comprehensive documentation for analytics tables.
+Given a dataset of event-data tables(from Bigquery), Loggy ingests the relevant github codebase repo and generates comprehensive documentation for those analytics tables.
 
 ## Quick Install
 
