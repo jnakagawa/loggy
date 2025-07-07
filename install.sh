@@ -37,7 +37,7 @@ cd "$PROJECT_DIR"
 
 # Download the prompt
 echo "📥 Downloading Loggy prompt..."
-curl -s https://raw.githubusercontent.com/jonahnakagawa/loggy/main/loggy.md > loggy-prompt.md
+curl -s https://raw.githubusercontent.com/jnakagawa/loggy/main/loggy.md > loggy-prompt.md
 
 # Extract just the prompt content (remove YAML frontmatter)
 echo "🔧 Preparing prompt..."
