@@ -1,10 +1,22 @@
 # 🪵 Loggy
-
-Interactive event documentation generator for GitHub repos and BigQuery datasets.
+  ╔══════════════════════════════════════════════════════════════════════════════════════╗
+  ║                                                                                      ║
+  ║  ██╗      ██████╗  ██████╗  ██████╗██╗   ██╗                                         ║
+  ║  ██║     ██╔═══██╗██╔════╝ ██╔════╝╚██╗ ██╔╝                                         ║
+  ║  ██║     ██║   ██║██║  ███╗██║  ███╗╚████╔╝                                          ║
+  ║  ██║     ██║   ██║██║   ██║██║   ██║ ╚██╔╝                                           ║
+  ║  ███████╗╚██████╔╝╚██████╔╝╚██████╔╝  ██║                                            ║
+  ║  ╚══════╝ ╚═════╝  ╚═════╝  ╚═════╝   ╚═╝                                            ║
+  ║                                                                                      ║
+  ║               🪵 Interactive Event Documentation Generator   🪵                       ║
+  ║                                                                                      ║
+  ║               "It's logging time :)"                                                 ║
+  ║                                                                                      ║
+  ╚══════════════════════════════════════════════════════════════════════════════════════╝
+Claude Code Skin for interactive event documentation generator for GitHub repos and BigQuery datasets.
 
 ## What it does
-
-Analyzes your codebase and generates comprehensive documentation for analytics events, then writes the descriptions back to BigQuery.
+Given a set of event based tables (from Bigquery), Loggy ingests the github codebase repo and generates comprehensive documentation for analytics tables.
 
 ## Quick Install
 
@@ -34,10 +46,3 @@ This will:
 - BigQuery dataset
 - GitHub personal access token  
 - Google Cloud SDK
-
-## Features
-
-- Index-first search (99.9% faster than reading full codebase)
-- Generates comprehensive event documentation
-- Writes table descriptions back to BigQuery
-- Beautiful ASCII interface with progress bars
