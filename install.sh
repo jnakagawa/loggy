@@ -48,5 +48,3 @@ echo "🚀 Starting Loggy in Claude Code..."
 
 # Pass the prompt directly to Claude
 claude "$(cat prompt.txt)"
-
-echo "✅ Loggy is running! Follow the prompts in Claude Code."
