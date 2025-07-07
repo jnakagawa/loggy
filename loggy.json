@@ -1,9 +1,0 @@
-{
-  "name": "loggy",
-  "description": "🪵 Interactive event documentation generator with index-first search for GitHub repos and BigQuery datasets. Generates comprehensive event docs and writes back to BigQuery metadata.",
-  "prompt": "{{PROMPT_CONTENT}}",
-  "version": "2.0.0",
-  "author": "Pie Engineering",
-  "tags": ["documentation", "bigquery", "events", "analytics", "indexing", "claude"],
-  "category": "productivity"
-}
