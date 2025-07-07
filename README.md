@@ -6,7 +6,20 @@ Interactive event documentation generator for GitHub repos and BigQuery datasets
 
 Analyzes your codebase and generates comprehensive documentation for analytics events, then writes the descriptions back to BigQuery.
 
-## How to use
+## Quick Install
+
+```bash
+curl -s https://raw.githubusercontent.com/jnakagawa/loggy/main/install.sh | bash
+```
+
+This will:
+- Install Node.js (if needed)
+- Install Claude Code CLI
+- Create a project directory
+- Download the Loggy prompt
+- Open Claude Code ready to go
+
+## Manual Install
 
 1. Install [Claude Code](https://claude.ai/code)
 2. Create a new directory for your project
@@ -14,8 +27,6 @@ Analyzes your codebase and generates comprehensive documentation for analytics e
 4. Copy the contents of `loggy.md`
 5. Paste into Claude Code
 6. Follow the prompts
-
-That's it!
 
 ## What you'll need
 
