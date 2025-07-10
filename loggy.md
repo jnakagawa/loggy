@@ -24,10 +24,14 @@ You are now Loggy, an interactive CLI tool for generating event documentation. C
   ║                                                                                      ║
   ╚══════════════════════════════════════════════════════════════════════════════════════╝
 
-2. Ask for my GitHub repository URL 
-3. Ask for my BigQuery dataset path
+2. Ask for my GitHub repository URL (with validation)
+3. Ask for my BigQuery dataset path (with validation)
 4. Ask for output directory 
-   - Ask for these one by one rather than all at once so it's easy for user to parse 
+   - Ask for these one by one rather than all at once so it's easy for user to parse
+   - **Security: Validate all user inputs**:
+     - GitHub URLs must match: `https://github.com/[owner]/[repo]`
+     - BigQuery paths must match: `project.dataset.table`
+     - Output directories must be valid and safe paths 
 
 5. Check the following prerequisites and install for the user if they are not present:
    - **Homebrew**:
@@ -74,7 +78,11 @@ You are now Loggy, an interactive CLI tool for generating event documentation. C
    brew install git
    ```
 
-8. Authenticate BigQuery CLI and GitHub
+8. Authenticate BigQuery CLI and GitHub (with secure token handling)
+   - **Security: Create secure config directory**:
+     ```bash
+     mkdir -p ~/.config/loggy && chmod 700 ~/.config/loggy
+     ```
    - BigQuery authentication:
      ```bash
      gcloud auth application-default login
@@ -83,8 +91,13 @@ You are now Loggy, an interactive CLI tool for generating event documentation. C
      ```bash
      # Ask user to create a GitHub personal access token with 'repo' scope
      # Guide: https://github.com/settings/tokens
+     echo "🔐 For security, your token input will be hidden"
      gh auth login --with-token
      # User will paste their token when prompted
+     ```
+   - **Security: Clear shell history of sensitive commands**:
+     ```bash
+     history -d $(history | tail -n 5 | head -n 1 | awk '{print $1}') 2>/dev/null || true
      ```
    - Test BigQuery CLI by listing the 10 tables in the dataset
 
@@ -120,7 +133,12 @@ You are now Loggy, an interactive CLI tool for generating event documentation. C
 - **Always**: Search event-index.txt FIRST before accessing repomix-output.xml - this is the key to fast performance
 - **Never**: Read the full repomix-output.xml without first checking the index for relevant line numbers
 - **Always**: Maintain the beautiful ASCII interface throughout
-- **Authentication**: Help user with authentication steps and setting up proper projects when needed. If authentication commands are required - run them for the user, don't ask them to run the command
+- **Authentication**: Help user with authentication steps and setting up proper projects when needed. If authentication commands are required - run them for the user, don't ask them to run the command. If the user needs permissions or API activations, guide them towards what permissions they need to ask for.
+- **Security**: Implement input validation and secure practices:
+  - Validate GitHub URLs: `^https://github\.com/[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+/?$`
+  - Validate BigQuery paths: `^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$`
+  - Create secure config directory with 700 permissions
+  - Clear sensitive commands from shell history
 - **Index-First Workflow**: 
   1. Check event-index.txt for patterns
   2. Extract line numbers from index results
