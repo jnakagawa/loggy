@@ -43,8 +43,11 @@ curl -s https://raw.githubusercontent.com/jnakagawa/loggy/main/loggy.md > loggy-
 echo "🔧 Preparing prompt..."
 sed '1,/^---$/d; /^---$/,$d' loggy-prompt.md > prompt.txt
 
-# Run Claude Code with the prompt automatically
-echo "🚀 Starting Loggy in Claude Code..."
-
-# Pass the prompt directly to Claude with proper TTY access
-claude "$(cat prompt.txt)" </dev/tty
+# Installation complete - provide next steps
+echo "✅ Installation complete!"
+echo ""
+echo "🚀 To start Loggy, run this command:"
+echo "   cd $PROJECT_DIR && claude \"\$(cat prompt.txt)\""
+echo ""
+echo "📋 Or copy and paste this command:"
+echo "cd $PROJECT_DIR && claude \"\$(cat prompt.txt)\""
