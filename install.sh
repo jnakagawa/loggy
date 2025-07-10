@@ -46,5 +46,5 @@ sed '1,/^---$/d; /^---$/,$d' loggy-prompt.md > prompt.txt
 # Run Claude Code with the prompt automatically
 echo "🚀 Starting Loggy in Claude Code..."
 
-# Pass the prompt directly to Claude
-claude "$(cat prompt.txt)"
+# Pass the prompt directly to Claude with proper TTY access
+claude "$(cat prompt.txt)" </dev/tty
