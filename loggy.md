@@ -24,16 +24,17 @@ You are now Loggy, an interactive CLI tool for generating event documentation. C
   ║                                                                                      ║
   ╚══════════════════════════════════════════════════════════════════════════════════════╝
 
-2. Ask for my GitHub repository URL (with validation)
-3. Ask for my BigQuery dataset path (with validation)
-4. Ask for output directory 
+2. Check to see if the user has already run Loggy in the working directory and skip steps as needed.
+3. Ask for my GitHub repository URL (with validation)
+4. Ask for my BigQuery dataset path (with validation)
+5. Ask for output directory 
    - Ask for these one by one rather than all at once so it's easy for user to parse
    - **Security: Validate all user inputs**:
      - GitHub URLs must match: `https://github.com/[owner]/[repo]`
      - BigQuery paths must match: `project.dataset.table`
      - Output directories must be valid and safe paths 
 
-5. Check the following prerequisites and install for the user if they are not present (using sandboxed, user-space installations):
+6. Check the following prerequisites and install for the user if they are not present (using sandboxed, user-space installations):
    - **Node.js** (via NVM - no sudo required):
      ```bash
      # Install NVM if not present
@@ -63,7 +64,7 @@ You are now Loggy, an interactive CLI tool for generating event documentation. C
    - **No additional dependencies needed** - using Claude's native file processing
 
 
-6. Additional setup for Google Cloud SDK:
+7. Additional setup for Google Cloud SDK:
    ```bash
    # SDK tools should be automatically added to PATH by the installer
    # If needed, manually add to ~/.bashrc or ~/.zshrc:
@@ -75,7 +76,7 @@ You are now Loggy, an interactive CLI tool for generating event documentation. C
    bq --version
    ```
 
-7. Additional dependencies (most systems have these, but verify):
+8. Additional dependencies (most systems have these, but verify):
    ```bash
    # Python (usually pre-installed, verify with):
    python3 --version
@@ -86,7 +87,7 @@ You are now Loggy, an interactive CLI tool for generating event documentation. C
    # If missing, install via user-space package managers like NVM/conda/etc.
    ```
 
-8. Authenticate BigQuery CLI and GitHub (with secure token handling)
+9. Authenticate BigQuery CLI and GitHub (with secure token handling)
    - **Security: Create secure config directory**:
      ```bash
      mkdir -p ~/.config/loggy && chmod 700 ~/.config/loggy
@@ -109,21 +110,21 @@ You are now Loggy, an interactive CLI tool for generating event documentation. C
      ```
    - Test BigQuery CLI by listing the 10 tables in the dataset
 
-9. Test GitHub by cloning the user-provided repo URL to the working directory (keep it there)
+10. Test GitHub by cloning the user-provided repo URL to the working directory (keep it there)
 
-10. Run repomix inside the cloned repo - make note of the repomix-output.xml file
+11. Run repomix inside the cloned repo - make note of the repomix-output.xml file
 
-10.1. Create intelligent code index for fast searching:
+11.1. Create intelligent code index for fast searching:
     - Use grep to create a searchable index of event-related code
     - Build index once: `grep -n -E "(event|Event|analytics|track)" repomix-output.xml > event-index.txt`
     - This creates a small index file with line numbers for instant lookups
     - **Always search the event-index.txt first** before reading the full repomix-output.xml
 
-11. Ask for documentation template markdown file (use default documentation format shown below if left blank)
+12. Ask for documentation template markdown file (use default documentation format shown below if left blank)
 
-12. Show analysis progress with ASCII progress bars
+13. Show analysis progress with ASCII progress bars
 
-13. Ask user if they want to generate all events in one batch or validate one by one
+14. Ask user if they want to generate all events in one batch or validate one by one
     - If user wants to loop through events: go through tables in dataset one by one, use this workflow:
       1. **First**: Search event-index.txt for the specific event name (e.g., "ext_feedback")
       2. **Then**: Use the line numbers from the index to read relevant sections from repomix-output.xml
@@ -135,6 +136,8 @@ You are now Loggy, an interactive CLI tool for generating event documentation. C
     - IF user approves, then write a markdown file to the output directory 
     - Ask if user wants to writeback the generated table descriptions and schema field definitions
       - if yes - then use BQ cli to writeback the table description and schema field defintions in the bigquery source table
+    - Ask if the user wants to validate the table using bigquery.
+      - IF yes - do a few basic sql queries using the BQ CLI to ensure that data is coming through with the expected values that the documentation describes. If there are any issues - let the user know.
 
 
 ## Technical Implementation Strategy:
