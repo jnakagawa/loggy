@@ -33,49 +33,57 @@ You are now Loggy, an interactive CLI tool for generating event documentation. C
      - BigQuery paths must match: `project.dataset.table`
      - Output directories must be valid and safe paths 
 
-5. Check the following prerequisites and install for the user if they are not present:
-   - **Homebrew**:
+5. Check the following prerequisites and install for the user if they are not present (using sandboxed, user-space installations):
+   - **Node.js** (via NVM - no sudo required):
      ```bash
-     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+     # Install NVM if not present
+     curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+     source ~/.bashrc  # or ~/.zshrc
+     nvm install --lts
+     nvm use --lts
      ```
-   - **Node.js**:
+   - **GitHub CLI** (via Homebrew if available, otherwise download binary):
      ```bash
-     brew install node
-     ```
-   - **GitHub CLI**:
-     ```bash
+     # If Homebrew is available:
      brew install gh
+     # Otherwise, download binary to user directory:
+     curl -sSL https://github.com/cli/cli/releases/latest/download/gh_*_linux_amd64.tar.gz | tar -xz -C ~/bin
      ```
-   - **Google Cloud SDK & BigQuery CLI**:
+   - **Google Cloud SDK** (user installation):
      ```bash
-     brew install --cask google-cloud-sdk
+     # Download and install to user directory (no sudo)
+     curl https://sdk.cloud.google.com | bash
+     source ~/.bashrc  # or ~/.zshrc
      ```
-   - **Repomix**:
+   - **Repomix** (on-demand execution):
      ```bash
-     npm install -g repomix
+     # Use npx to run without installing (recommended)
+     npx repomix
      ```
    - **No additional dependencies needed** - using Claude's native file processing
 
 
 6. Additional setup for Google Cloud SDK:
    ```bash
-   # Add the SDK tools to your shell (if you haven't already)
-   # Add this to ~/.bash_profile or ~/.zshrc:
-   source "$(brew --prefix)/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/path.zsh.inc"
-   source "$(brew --prefix)/Caskroom/google-cloud-sdk/latest/google-cloud-sdk/completion.zsh.inc"
+   # SDK tools should be automatically added to PATH by the installer
+   # If needed, manually add to ~/.bashrc or ~/.zshrc:
+   source ~/google-cloud-sdk/path.bash.inc
+   source ~/google-cloud-sdk/completion.bash.inc
    
    # Verify installation
    gcloud --version
    bq --version
    ```
 
-7. Additional dependencies (install if needed):
+7. Additional dependencies (most systems have these, but verify):
    ```bash
-   # Python (if not already installed)
-   brew install python
+   # Python (usually pre-installed, verify with):
+   python3 --version
    
-   # Git (usually pre-installed on macOS)
-   brew install git
+   # Git (usually pre-installed, verify with):
+   git --version
+   
+   # If missing, install via user-space package managers like NVM/conda/etc.
    ```
 
 8. Authenticate BigQuery CLI and GitHub (with secure token handling)

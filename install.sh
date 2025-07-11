@@ -3,6 +3,19 @@
 # Loggy One-Line Installer
 set -e
 
+# Self-verification: Verify this script's integrity
+EXPECTED_INSTALLER_SHA256="fe841b948b98ffbe1a410f3ae75ffee9cf0599f53c340ea7540fed987a967e4b"
+ACTUAL_INSTALLER_SHA256="$(sha256sum "$0" | cut -d' ' -f1)"
+
+if [ "$ACTUAL_INSTALLER_SHA256" != "$EXPECTED_INSTALLER_SHA256" ]; then
+    echo "❌ Security Error: Installer integrity check failed"
+    echo "Expected: $EXPECTED_INSTALLER_SHA256"
+    echo "Actual: $ACTUAL_INSTALLER_SHA256"
+    echo "This installer may have been tampered with. Please download from the official source."
+    exit 1
+fi
+echo "✅ Installer integrity verified"
+
 echo "🪵 Installing Loggy..."
 
 # Security: Checksum verification function
@@ -24,16 +37,26 @@ verify_checksum() {
 if ! command -v node &> /dev/null; then
     echo "📦 Installing Node.js..."
     if [[ "$OSTYPE" == "darwin"* ]]; then
-        # macOS
+        # macOS - Try Homebrew first, fall back to NVM
         if ! command -v brew &> /dev/null; then
-            echo "Installing Homebrew..."
-            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            echo "Homebrew not found. Installing Node.js via NVM (no sudo required)..."
+            curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+            nvm install --lts
+            nvm use --lts
+        else
+            echo "Using Homebrew to install Node.js..."
+            brew install node
         fi
-        brew install node
     elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        # Linux
-        curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
-        sudo apt-get install -y nodejs
+        # Linux - Install Node.js via Node Version Manager (no sudo required)
+        echo "Installing Node.js via NVM (no sudo required)..."
+        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+        export NVM_DIR="$HOME/.nvm"
+        [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+        nvm install --lts
+        nvm use --lts
     else
         echo "❌ Unsupported OS. Please install Node.js manually."
         exit 1
