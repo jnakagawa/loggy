@@ -3,18 +3,21 @@
 # Loggy One-Line Installer
 set -e
 
-# Self-verification: Verify this script's integrity
-EXPECTED_INSTALLER_SHA256="fe841b948b98ffbe1a410f3ae75ffee9cf0599f53c340ea7540fed987a967e4b"
-ACTUAL_INSTALLER_SHA256="$(sha256sum "$0" | cut -d' ' -f1)"
-
-if [ "$ACTUAL_INSTALLER_SHA256" != "$EXPECTED_INSTALLER_SHA256" ]; then
-    echo "❌ Security Error: Installer integrity check failed"
-    echo "Expected: $EXPECTED_INSTALLER_SHA256"
-    echo "Actual: $ACTUAL_INSTALLER_SHA256"
-    echo "This installer may have been tampered with. Please download from the official source."
-    exit 1
+# Security: Verify this script's integrity using external checksum
+if [ -f "$0" ] && [ "$0" != "bash" ]; then
+    echo "🔐 Verifying installer integrity..."
+    curl -s https://raw.githubusercontent.com/jnakagawa/loggy/main/SHA256SUMS > /tmp/SHA256SUMS
+    if sha256sum -c /tmp/SHA256SUMS --ignore-missing 2>/dev/null | grep -q "install.sh: OK"; then
+        echo "✅ Installer integrity verified"
+    else
+        echo "❌ Security Error: Installer integrity check failed"
+        echo "This installer may have been tampered with. Please download from the official source."
+        exit 1
+    fi
+    rm -f /tmp/SHA256SUMS
+else
+    echo "ℹ️  Running installer from pipe (integrity check skipped)"
 fi
-echo "✅ Installer integrity verified"
 
 echo "🪵 Installing Loggy..."
 
