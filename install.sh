@@ -6,7 +6,7 @@ set -e
 # Security: Verify this script's integrity using external checksum
 if [ -f "$0" ] && [ "$0" != "bash" ]; then
     echo "🔐 Verifying installer integrity..."
-    curl -s "https://api.github.com/repos/jnakagawa/loggy/contents/SHA256SUMS" | grep '"content"' | cut -d'"' -f4 | base64 -d > /tmp/SHA256SUMS
+    curl -s "https://api.github.com/repos/jnakagawa/loggy/contents/SHA256SUMS" | python3 -c "import json,sys,base64; print(base64.b64decode(json.load(sys.stdin)['content']).decode())" > /tmp/SHA256SUMS
     if sha256sum -c /tmp/SHA256SUMS --ignore-missing 2>/dev/null | grep -q "install.sh: OK"; then
         echo "✅ Installer integrity verified"
     else
@@ -78,11 +78,11 @@ cd "$PROJECT_DIR"
 
 # Download the prompt
 echo "📥 Downloading Loggy prompt..."
-curl -s "https://api.github.com/repos/jnakagawa/loggy/contents/loggy.md" | grep '"content"' | cut -d'"' -f4 | base64 -d > loggy-prompt.md
+curl -s "https://api.github.com/repos/jnakagawa/loggy/contents/loggy.md" | python3 -c "import json,sys,base64; print(base64.b64decode(json.load(sys.stdin)['content']).decode())" > loggy-prompt.md
 
 # Security: Verify downloaded file integrity
 echo "🔐 Verifying file integrity..."
-EXPECTED_LOGGY_SHA256="02cc0c0fdeb0cf127788177ac8ed56a14d82c216ebd63471698a88e593c66d51"
+EXPECTED_LOGGY_SHA256="a9e49ca264acb4681ca25c3061ca5c43f56f8a8e67d5d05c04fe4769de95ef7d"
 verify_checksum "loggy-prompt.md" "$EXPECTED_LOGGY_SHA256"
 
 # Extract just the prompt content (remove YAML frontmatter)
