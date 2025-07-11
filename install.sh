@@ -6,7 +6,7 @@ set -e
 # Security: Verify this script's integrity using external checksum
 if [ -f "$0" ] && [ "$0" != "bash" ]; then
     echo "🔐 Verifying installer integrity..."
-    curl -s https://raw.githubusercontent.com/jnakagawa/loggy/main/SHA256SUMS > /tmp/SHA256SUMS
+    curl -s "https://api.github.com/repos/jnakagawa/loggy/contents/SHA256SUMS" | grep '"content"' | cut -d'"' -f4 | base64 -d > /tmp/SHA256SUMS
     if sha256sum -c /tmp/SHA256SUMS --ignore-missing 2>/dev/null | grep -q "install.sh: OK"; then
         echo "✅ Installer integrity verified"
     else
@@ -78,7 +78,7 @@ cd "$PROJECT_DIR"
 
 # Download the prompt
 echo "📥 Downloading Loggy prompt..."
-curl -s https://raw.githubusercontent.com/jnakagawa/loggy/main/loggy.md > loggy-prompt.md
+curl -s "https://api.github.com/repos/jnakagawa/loggy/contents/loggy.md" | grep '"content"' | cut -d'"' -f4 | base64 -d > loggy-prompt.md
 
 # Security: Verify downloaded file integrity
 echo "🔐 Verifying file integrity..."
