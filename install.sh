@@ -89,11 +89,8 @@ verify_checksum "loggy-prompt.md" "$EXPECTED_LOGGY_SHA256"
 echo "🔧 Preparing prompt..."
 sed '1,/^---$/d; /^---$/,$d' loggy-prompt.md > prompt.txt
 
-# Installation complete - provide next steps
+# Installation complete - auto-start Loggy
 echo "✅ Installation complete!"
 echo ""
-echo "🚀 To start Loggy, run this command:"
-echo "   cd $PROJECT_DIR && claude \"\$(cat prompt.txt)\""
-echo ""
-echo "📋 Or copy and paste this command:"
-echo "cd $PROJECT_DIR && claude \"\$(cat prompt.txt)\""
+echo "🚀 Starting Loggy..."
+cd "$PROJECT_DIR" && claude "$(cat prompt.txt)"
