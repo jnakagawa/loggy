@@ -82,7 +82,7 @@ curl -s "https://api.github.com/repos/jnakagawa/loggy/contents/loggy.md" | pytho
 
 # Security: Verify downloaded file integrity
 echo "🔐 Verifying file integrity..."
-EXPECTED_LOGGY_SHA256="a9e49ca264acb4681ca25c3061ca5c43f56f8a8e67d5d05c04fe4769de95ef7d"
+EXPECTED_LOGGY_SHA256="d6de144750e37a24dfc03423be46e426c135a77540f836688f18e8b06ae6edae"
 verify_checksum "loggy-prompt.md" "$EXPECTED_LOGGY_SHA256"
 
 # Extract just the prompt content (remove YAML frontmatter)
