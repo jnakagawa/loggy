@@ -23,6 +23,14 @@ Claude Code Wizard for repo-driven documentation of BigQuery event datasets.
 
 Given a dataset of event-data tables(from Bigquery), Loggy ingests the relevant github codebase repo and generates comprehensive documentation for those analytics tables.
 
+## What you'll need
+
+- GitHub repo with analytics events
+- BigQuery dataset with events fired from that repo's code
+- Claude Pro subscription (for Claude Code CLI access)
+- GitHub personal access token  
+- Google Cloud SDK and API access
+
 ## 🚀 Quick Start
 
 ### Secure Installation (Recommended)
@@ -64,9 +72,3 @@ This will:
 5. Paste into Claude Code
 6. Follow the prompts
 
-## What you'll need
-
-- GitHub repo with analytics events
-- BigQuery dataset with events fired from that repo's code
-- GitHub personal access token  
-- Google Cloud SDK and API access
