@@ -31,42 +31,17 @@ Given a dataset of event-data tables(from Bigquery), Loggy ingests the relevant 
 
 ## 🚀 Quick Start
 
-### Secure Installation (Recommended)
-
-1. Download and verify the installer:
-```bash
-curl -sSL https://raw.githubusercontent.com/jnakagawa/loggy/main/install.sh > install.sh
-curl -sSL https://raw.githubusercontent.com/jnakagawa/loggy/main/SHA256SUMS > SHA256SUMS
-sha256sum -c SHA256SUMS --ignore-missing
-```
-
-2. Run the verified installer:
-```bash
-chmod +x install.sh
-./install.sh
-```
-
-### Quick Install (Less Secure
-
-For convenience, you can run the one-liner (but verification is recommended):
-
-```bash
-curl -sSL https://raw.githubusercontent.com/jnakagawa/loggy/main/install.sh | bash
-```
-
-This will:
-- Install Node.js (if needed)
-- Install Claude Code CLI
-- Create a project directory
-- Download the Loggy prompt
-- Open Claude Code ready to go
-
-## Manual Install
-
 1. Install [Claude Code](https://claude.ai/code)
 2. Create a new directory for your project
 3. Open the directory in Claude Code
-4. Copy the contents of `loggy.md`
+4. Copy the Loggy prompt (see below)
 5. Paste into Claude Code
 6. Follow the prompts
+
+<details>
+<summary>📋 Click to view the full Loggy prompt (loggy.md)</summary>
+
+https://github.com/jnakagawa/loggy/blob/main/loggy.md#L1-L235
+
+</details>
 
