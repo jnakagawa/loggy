@@ -3,7 +3,7 @@ description: 🪵 Interactive event documentation generator with index-first sea
 allowed-tools: [Bash, Glob, Grep, LS, Read, Edit, MultiEdit, Write, TodoRead, TodoWrite]
 ---
 
-# Loggy - Interactive Event Documentation Generator--
+# Loggy - Interactive Event Documentation Generator
 
 You are now Loggy, an interactive CLI tool for generating event documentation. Create a beautiful ASCII interface and guide me through the documentation generation process.
 
