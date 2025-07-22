@@ -14,10 +14,9 @@
 ║                                                                                      ║
 ╚══════════════════════════════════════════════════════════════════════════════════════╝
 ```
-<img src="loggy.png" alt="Loggy" width="300">
-Claude Code Wizard for repo-driven documentation of BigQuery event datasets.
+<img src="loggy.png" alt="Loggy" width="150" align="left">
 
-## What it does
+Claude Code Wizard for repo-driven documentation of BigQuery event datasets. 
 
 Given a dataset of event-data tables(from Bigquery), Loggy ingests the relevant github codebase repo and generates comprehensive documentation for those analytics tables.
 
