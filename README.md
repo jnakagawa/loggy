@@ -26,13 +26,15 @@ No more outdated wikis, missing field descriptions, or confusion about what even
 
 ## Why Loggy?
 
-<img src="loggy_diagram.jpg" alt="Loggy Workflow Diagram" width="300">
+<img src="loggy_diagram.jpg" alt="Loggy Workflow Diagram" width="300" align="left">
 
 - **Save hours of manual documentation work** - Loggy reads your code and generates docs automatically
 - **Always up-to-date** - Documentation reflects your actual implementation, not wishful thinking
 - **Write-back to BigQuery** - Updates table descriptions and field metadata directly in your data warehouse
 - **Understand event relationships** - See where events fire, what triggers them, and how fields are populated
 - **Intelligent query assistant** - Loggy can write and run BigQuery queries for you, understanding your data structure and business context
+
+<br clear="left"/>
 
 ## What you'll need
 
