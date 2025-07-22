@@ -36,9 +36,9 @@ jobs:
         cat > README.md << 'ENDOFREADME'
 ${BEFORE}
 <!-- START-LOGGY-PROMPT -->
-```markdown
+<pre><code>
 ${LOGGY_CONTENT}
-```
+</code></pre>
 <!-- END-LOGGY-PROMPT -->
 ${AFTER}
 ENDOFREADME

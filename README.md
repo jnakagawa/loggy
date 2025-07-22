@@ -16,11 +16,19 @@
 ```
 <img src="loggy.png" alt="Loggy" width="150" align="left">
 
-Claude Code Wizard for repo-driven documentation of BigQuery event datasets. 
+**Turn your analytics chaos into clear documentation in minutes.** 
 
-Given a dataset of event-data tables(from Bigquery), Loggy ingests the relevant github codebase repo and generates comprehensive documentation for those analytics tables.
+Loggy is a Claude Code tool that automatically generates comprehensive documentation for your BigQuery analytics events by understanding your actual code implementation. No more outdated wikis, missing field descriptions, or confusion about what events actually do.
 
 <br clear="left"/>
+
+## 🎯 Why Loggy?
+
+- **Save hours of manual documentation work** - Loggy reads your code and generates docs automatically
+- **Always up-to-date** - Documentation reflects your actual implementation, not wishful thinking
+- **Write-back to BigQuery** - Updates table descriptions and field metadata directly in your data warehouse
+- **Understand event relationships** - See where events fire, what triggers them, and how fields are populated
+- **Intelligent query assistant** - Loggy can write and run BigQuery queries for you, understanding your data structure and business context
 
 ## What you'll need
 
@@ -35,7 +43,7 @@ Given a dataset of event-data tables(from Bigquery), Loggy ingests the relevant 
 1. Install [Claude Code](https://claude.ai/code)
 2. Create a new directory for your project
 3. Open the directory in Claude Code
-4. Copy the Loggy prompt below
+4. Copy the [Loggy prompt](loggy.md) below
 5. Paste into Claude Code
 6. Follow the prompts
 
@@ -44,7 +52,7 @@ Given a dataset of event-data tables(from Bigquery), Loggy ingests the relevant 
 Copy everything below this line:
 
 <!-- START-LOGGY-PROMPT -->
-```markdown
+<pre><code>
 ---
 description: 🪵 Interactive event documentation generator with index-first search for GitHub repos and BigQuery datasets. Generates comprehensive event docs and writes back to BigQuery metadata.
 allowed-tools: [Bash, Glob, Grep, LS, Read, Edit, MultiEdit, Write, TodoRead, TodoWrite]
@@ -280,6 +288,6 @@ Adblock, Shopping, Unified
 - **Event Setting**: `['required']` in eventSettingsCriteria
 - **Transparency**: Includes default transparency statement about diagnostic data usage
 - **Data Sensitivity**: Contains only storage usage metrics, no personal data
-```
+</code></pre>
 <!-- END-LOGGY-PROMPT -->
 
