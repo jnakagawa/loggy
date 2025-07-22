@@ -41,7 +41,7 @@ Given a dataset of event-data tables(from Bigquery), Loggy ingests the relevant 
 <details>
 <summary>📋 Click to view the full Loggy prompt (loggy.md)</summary>
 
-https://github.com/jnakagawa/loggy/blob/main/loggy.md#L1-L235
+https://github.com/jnakagawa/loggy/blob/57c87f8eba6eeec1c08a3a2cf528c9f2c47708dc/loggy.md#L1-L235
 
 </details>
 
