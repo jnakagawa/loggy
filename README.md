@@ -17,7 +17,7 @@
 ║                                                                                      ║
 ╚══════════════════════════════════════════════════════════════════════════════════════╝
 ```
-![Loggy](loggy.png)
+<img src="loggy.png" alt="Loggy" width="300">
 Claude Code Wizard for repo-driven documentation of BigQuery event datasets.
 
 ## What it does
