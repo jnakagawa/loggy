@@ -50,7 +50,6 @@ Loggy is a Claude Code tool that automatically generates comprehensive documenta
 ## 📋 Loggy Prompt
 
 Copy everything below this line:
-
 <!-- START-LOGGY-PROMPT -->
 <pre><code>
 ---
@@ -96,7 +95,7 @@ You are now Loggy, an interactive CLI tool for generating event documentation. C
 4. Ask for my GitHub repository URL (with validation)
 5. Ask for my BigQuery dataset path (with validation)
 6. Ask for output directory (./loggy_docs/ as default)
-   - Ask for these one by one rather than all at once so it's easy for user to parse
+Ask for these one by one rather than all at once so it's easy for user to parse
 
 7. Check the following prerequisites and install for the user if they are not present (using sandboxed, user-space installations):
    - **Node.js** (via NVM - no sudo required):
