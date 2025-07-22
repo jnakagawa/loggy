@@ -48,7 +48,7 @@ chmod +x install.sh
 ./install.sh
 ```
 
-### Quick Install (Less Secure)
+### Quick Install (Less Secure
 
 For convenience, you can run the one-liner (but verification is recommended):
 
