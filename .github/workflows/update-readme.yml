@@ -29,19 +29,19 @@ jobs:
         BEFORE=$(echo "$README_CONTENT" | sed -n '/<!-- START-LOGGY-PROMPT -->/q;p')
         AFTER=$(echo "$README_CONTENT" | sed -n '/<!-- END-LOGGY-PROMPT -->/,$p' | tail -n +2)
         
-        # Read loggy.md content
+        # Read loggy.md content and escape it for embedding
         LOGGY_CONTENT=$(cat loggy.md)
         
         # Create the new README content
-        cat > README.md << 'ENDOFREADME'
-${BEFORE}
-<!-- START-LOGGY-PROMPT -->
-<pre><code>
-${LOGGY_CONTENT}
-</code></pre>
-<!-- END-LOGGY-PROMPT -->
-${AFTER}
-ENDOFREADME
+        {
+          echo "$BEFORE"
+          echo "<!-- START-LOGGY-PROMPT -->"
+          echo "<pre><code>"
+          echo "$LOGGY_CONTENT"
+          echo "</code></pre>"
+          echo "<!-- END-LOGGY-PROMPT -->"
+          echo "$AFTER"
+        } > README.md
         
     - name: Check for changes
       id: check_changes
