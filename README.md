@@ -24,7 +24,7 @@ No more outdated wikis, missing field descriptions, or confusion about what even
 
 <br clear="left"/>
 
-## 🎯 Why Loggy?
+## Why Loggy?
 
 - **Save hours of manual documentation work** - Loggy reads your code and generates docs automatically
 - **Always up-to-date** - Documentation reflects your actual implementation, not wishful thinking
@@ -40,7 +40,7 @@ No more outdated wikis, missing field descriptions, or confusion about what even
 - GitHub personal access token  
 - Google Cloud SDK and API access
 
-## 🚀 Quick Start
+## Quick Start
 
 1. Install [Claude Code](https://claude.ai/code)
 2. Create a new directory for your project
@@ -49,7 +49,7 @@ No more outdated wikis, missing field descriptions, or confusion about what even
 5. Paste into Claude Code
 6. Follow the prompts
 
-## 📋 Loggy Prompt
+## Loggy Prompt
 
 Copy everything below this line:-------------------------------------------------------------------- click here ↓
 <!-- START-LOGGY-PROMPT -->
