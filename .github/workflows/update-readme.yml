@@ -1,0 +1,62 @@
+name: Update README with Loggy Prompt
+
+on:
+  push:
+    paths:
+      - 'loggy.md'
+    branches:
+      - main
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  update-readme:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        
+    - name: Update README with loggy.md content
+      run: |
+        # Read the current README
+        README_CONTENT=$(cat README.md)
+        
+        # Extract content before and after the prompt section
+        BEFORE=$(echo "$README_CONTENT" | sed -n '/<!-- START-LOGGY-PROMPT -->/q;p')
+        AFTER=$(echo "$README_CONTENT" | sed -n '/<!-- END-LOGGY-PROMPT -->/,$p' | tail -n +2)
+        
+        # Read loggy.md content
+        LOGGY_CONTENT=$(cat loggy.md)
+        
+        # Create the new README content
+        cat > README.md << EOF
+${BEFORE}
+<!-- START-LOGGY-PROMPT -->
+\`\`\`markdown
+${LOGGY_CONTENT}
+\`\`\`
+<!-- END-LOGGY-PROMPT -->
+${AFTER}
+EOF
+        
+    - name: Check for changes
+      id: check_changes
+      run: |
+        if git diff --quiet; then
+          echo "changes=false" >> $GITHUB_OUTPUT
+        else
+          echo "changes=true" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: Commit and push changes
+      if: steps.check_changes.outputs.changes == 'true'
+      run: |
+        git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        git add README.md
+        git commit -m "🤖 Update README with latest loggy.md content"
+        git push
