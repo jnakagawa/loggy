@@ -18,7 +18,9 @@
 
 **Turn your analytics chaos into clear documentation in minutes.** 
 
-Loggy is a Claude Code tool that automatically generates comprehensive documentation for your BigQuery analytics events by understanding your actual code implementation. No more outdated wikis, missing field descriptions, or confusion about what events actually do.
+Loggy is a Claude Code tool that automatically generates comprehensive documentation for your BigQuery analytics events by understanding your actual code implementation. 
+
+No more outdated wikis, missing field descriptions, or confusion about what events actually do.
 
 <br clear="left"/>
 
