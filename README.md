@@ -8,7 +8,7 @@
 ║  ███████╗╚██████╔╝╚██████╔╝╚██████╔╝  ██║                                            ║
 ║  ╚══════╝ ╚═════╝  ╚═════╝  ╚═════╝   ╚═╝                                            ║
 ║                                                                                      ║
-║               🪵 EYour friendly AI Data Documentation Wizard 🪵                      ║
+║               🪵 Your friendly AI Data Documentation Wizard 🪵                       ║
 ║                                                                                      ║
 ║               "It's logging time :)"                                                 ║
 ║                                                                                      ║
