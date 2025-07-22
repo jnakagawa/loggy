@@ -26,7 +26,7 @@ No more outdated wikis, missing field descriptions, or confusion about what even
 
 ## Why Loggy?
 
-<img src="loggy_diagram.jpg" alt="Loggy Workflow Diagram" width="600">
+<img src="loggy_diagram.jpg" alt="Loggy Workflow Diagram" width="300">
 
 - **Save hours of manual documentation work** - Loggy reads your code and generates docs automatically
 - **Always up-to-date** - Documentation reflects your actual implementation, not wishful thinking
