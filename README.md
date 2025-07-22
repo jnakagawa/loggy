@@ -49,7 +49,7 @@ Loggy is a Claude Code tool that automatically generates comprehensive documenta
 
 ## 📋 Loggy Prompt
 
-Copy everything below this line: ------------------ click here ↓
+Copy everything below this line:---------------------------------------------------------------- click here ↓
 <!-- START-LOGGY-PROMPT -->
 <pre><code>
 ---
