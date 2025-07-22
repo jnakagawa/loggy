@@ -34,12 +34,13 @@ Given a dataset of event-data tables(from Bigquery), Loggy ingests the relevant 
 1. Install [Claude Code](https://claude.ai/code)
 2. Create a new directory for your project
 3. Open the directory in Claude Code
-4. Copy the Loggy prompt (see below)
+4. Copy the Loggy prompt below
 5. Paste into Claude Code
 6. Follow the prompts
 
-<details>
-<summary>📋 Click to view the full Loggy prompt (loggy.md)</summary>
+## 📋 Loggy Prompt
+
+Copy everything below this line:
 
 <!-- START-LOGGY-PROMPT -->
 ```markdown
@@ -280,6 +281,4 @@ Adblock, Shopping, Unified
 - **Data Sensitivity**: Contains only storage usage metrics, no personal data
 ```
 <!-- END-LOGGY-PROMPT -->
-
-</details>
 

@@ -33,15 +33,15 @@ jobs:
         LOGGY_CONTENT=$(cat loggy.md)
         
         # Create the new README content
-        cat > README.md << EOF
+        cat > README.md << 'ENDOFREADME'
 ${BEFORE}
 <!-- START-LOGGY-PROMPT -->
-\`\`\`markdown
+```markdown
 ${LOGGY_CONTENT}
-\`\`\`
+```
 <!-- END-LOGGY-PROMPT -->
 ${AFTER}
-EOF
+ENDOFREADME
         
     - name: Check for changes
       id: check_changes
