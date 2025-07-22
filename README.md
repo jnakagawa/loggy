@@ -16,7 +16,7 @@
 ```
 <img src="loggy.png" alt="Loggy" width="150" align="left">
 
-**Turn your analytics chaos into clear documentation in minutes.** 
+**Document your event data in minutes.** 
 
 Loggy is a Claude Code tool that automatically generates comprehensive documentation for your BigQuery analytics events by understanding your actual code implementation. 
 
