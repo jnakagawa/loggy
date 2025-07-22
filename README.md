@@ -20,6 +20,7 @@ Claude Code Wizard for repo-driven documentation of BigQuery event datasets.
 
 Given a dataset of event-data tables(from Bigquery), Loggy ingests the relevant github codebase repo and generates comprehensive documentation for those analytics tables.
 
+
 ## What you'll need
 
 - GitHub repo with analytics events
