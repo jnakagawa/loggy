@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Analytics Logger</title>
+  <link rel="stylesheet" href="panel.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <img src="../loggy.png" alt="Loggy Logo" class="header-logo">
+        <h1>Analytics Logger</h1>
+      </div>
+      <div class="header-actions">
+        <button id="pauseBtn" class="btn btn-secondary" title="Pause event collection">
+          ⏸️ Pause
+        </button>
+        <button id="refreshBtn" class="btn btn-secondary" title="Refresh events">
+          🔄
+        </button>
+        <button id="settingsBtn" class="btn btn-secondary" title="Settings">
+          ⚙️
+        </button>
+      </div>
+    </header>
+
+    <!-- Stats Bar -->
+    <div class="stats-bar">
+      <div class="stat">
+        <span class="stat-label">Total Events:</span>
+        <span class="stat-value" id="totalEvents">0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Filtered:</span>
+        <span class="stat-value" id="filteredEvents">0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Storage:</span>
+        <span class="stat-value" id="storageUsage">0%</span>
+      </div>
+    </div>
+
+    <!-- Filter Bar -->
+    <div class="filter-bar">
+      <input
+        type="text"
+        id="searchInput"
+        class="search-input"
+        placeholder="Search events, properties, URLs..."
+      >
+      <select id="parserFilter" class="filter-select">
+        <option value="">All Sources</option>
+        <option value="segment-batch">Segment Batch</option>
+        <option value="segment-track">Segment Track</option>
+        <option value="google-analytics-4">Google Analytics 4</option>
+        <option value="google-analytics-ua">Google Analytics UA</option>
+        <option value="graphql">GraphQL</option>
+        <option value="generic-json">Custom JSON</option>
+      </select>
+      <select id="eventTypeFilter" class="filter-select">
+        <option value="">All Events</option>
+      </select>
+      <button id="clearFiltersBtn" class="btn btn-secondary btn-small">Clear Filters</button>
+    </div>
+
+    <!-- Action Bar -->
+    <div class="action-bar">
+      <button id="clearBtn" class="btn btn-danger btn-small">Clear All</button>
+      <button id="exportJSONBtn" class="btn btn-primary btn-small">Export JSON</button>
+      <button id="exportCSVBtn" class="btn btn-primary btn-small">Export CSV</button>
+    </div>
+
+    <!-- Events List -->
+    <div class="events-container">
+      <div id="emptyState" class="empty-state">
+        <div class="empty-icon">📭</div>
+        <h2>No events captured yet</h2>
+        <p>Analytics events will appear here automatically as your extensions send them.</p>
+        <p class="empty-hint">Try using an extension that sends analytics events (e.g., Segment, Google Analytics).</p>
+      </div>
+      <div id="eventsList" class="events-list"></div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Settings</h2>
+          <button id="closeSettingsBtn" class="btn-close">✕</button>
+        </div>
+
+        <!-- Settings Tabs -->
+        <div class="modal-tabs">
+          <button class="tab-btn active" data-tab="general">General</button>
+          <button class="tab-btn" data-tab="sources">Sources</button>
+          <button class="tab-btn" data-tab="proxy">Proxy</button>
+        </div>
+
+        <div class="modal-body">
+          <!-- General Settings Tab -->
+          <div id="generalTab" class="tab-content active">
+          <div class="setting-group">
+            <label class="setting-label">
+              <input type="checkbox" id="enabledSetting">
+              <span>Enable Event Capture</span>
+            </label>
+          </div>
+
+          <div class="setting-group">
+            <label class="setting-label">
+              <input type="checkbox" id="persistSetting">
+              <span>Persist Events (save to storage)</span>
+            </label>
+          </div>
+
+          <div class="setting-group">
+            <label class="setting-label">
+              Max Events (Ring Buffer Size):
+            </label>
+            <input type="number" id="maxEventsSetting" min="100" max="10000" step="100" value="1000">
+          </div>
+
+          <div class="setting-group">
+            <h3>Capture Sources</h3>
+            <label class="setting-label">
+              <input type="checkbox" id="captureSegmentSetting">
+              <span>Segment Analytics</span>
+            </label>
+            <label class="setting-label">
+              <input type="checkbox" id="captureGASetting">
+              <span>Google Analytics</span>
+            </label>
+            <label class="setting-label">
+              <input type="checkbox" id="captureGraphQLSetting">
+              <span>GraphQL</span>
+            </label>
+            <label class="setting-label">
+              <input type="checkbox" id="captureCustomSetting">
+              <span>Custom JSON</span>
+            </label>
+          </div>
+          </div><!-- End General Tab -->
+
+          <!-- Sources Tab -->
+          <div id="sourcesTab" class="tab-content">
+            <div class="sources-header">
+              <h3>Analytics Sources</h3>
+              <div style="display: flex; gap: 8px;">
+                <button id="addSourceBtn" class="btn btn-primary btn-small">+ Add Source</button>
+                <button id="importSourcesBtn" class="btn btn-secondary btn-small">Import</button>
+                <button id="exportSourcesBtn" class="btn btn-secondary btn-small">Export</button>
+              </div>
+            </div>
+
+            <div id="sourcesList" class="sources-list">
+              <!-- Sources will be populated here -->
+            </div>
+          </div><!-- End Sources Tab -->
+
+          <!-- Proxy Tab -->
+          <div id="proxyTab" class="tab-content">
+          <div class="setting-group" style="background: #e8f5e9; padding: 12px; border-radius: 4px; border: 1px solid #4caf50;">
+            <h3 style="color: #2e7d32; margin-bottom: 8px;">🔌 MITM Proxy Mode (Like Charles Proxy)</h3>
+            <p style="font-size: 12px; color: #666; margin-bottom: 12px;">
+              Intercepts HTTPS traffic from extension service workers! Just like Charles Proxy.
+            </p>
+
+            <div style="background: #fff; padding: 12px; border-radius: 4px; margin-bottom: 12px; border: 1px solid #4caf50;">
+              <p style="font-size: 13px; margin-bottom: 8px; font-weight: 600;">First time? Complete one-time setup:</p>
+              <button id="openSetupBtn" class="btn btn-primary" style="width: 100%;">
+                🚀 Open Setup Assistant
+              </button>
+              <p style="font-size: 11px; color: #666; margin-top: 8px;">
+                One-time setup (30 seconds) to enable the Start Proxy button below.
+              </p>
+            </div>
+
+            <div style="margin-bottom: 12px;">
+              <div style="font-size: 13px; margin-bottom: 8px; color: #666;">
+                Proxy Status: <span id="proxyStatus" style="font-weight: 600;">Stopped</span>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button id="startProxyBtn" class="btn btn-primary btn-small">🚀 Start Proxy</button>
+                <button id="stopProxyBtn" class="btn btn-danger btn-small" style="display: none;">Stop Proxy</button>
+              </div>
+              <p style="font-size: 11px; color: #4caf50; margin-top: 4px; font-weight: 600;">
+                ✨ Safe to click multiple times - automatically restarts if already running
+              </p>
+              <p style="font-size: 11px; color: #999; margin-top: 4px;" id="nativeHostHint">
+                ⚠️ If the button doesn't work, click "Open Setup Assistant" above
+              </p>
+            </div>
+
+            <details style="margin-top: 8px;">
+              <summary style="cursor: pointer; font-size: 12px; color: #4caf50;">How it works (truly one-click!)</summary>
+              <p style="font-size: 11px; color: #666; margin: 8px 0 0 0; line-height: 1.6;">
+                Click "Start Proxy" and the extension automatically:
+                <br>1. Starts the proxy server on localhost:8888
+                <br>2. Launches a new Chrome window with proxy enabled
+                <br>3. Enables event polling
+                <br><br>Use your extensions in the new Chrome window (look for yellow banner) and events appear here automatically!
+              </p>
+            </details>
+          </div>
+
+          <div class="setting-group" style="background: #fff3e0; padding: 12px; border-radius: 4px; border: 1px solid #ff9800;">
+            <h3 style="color: #f57c00; margin-bottom: 8px;">🔬 Deep Inspection Mode (Tab-Level Only)</h3>
+            <p style="font-size: 12px; color: #666; margin-bottom: 12px;">
+              Captures requests from the current tab (not extensions). Shows "Debugger attached" banner.
+            </p>
+            <div id="debuggerStatus" style="margin-bottom: 8px; font-size: 13px; color: #666;">
+              Status: <span id="debuggerStatusText">Not attached</span>
+            </div>
+            <button id="toggleDebuggerBtn" class="btn btn-primary btn-small">Enable Deep Inspection</button>
+            <p style="font-size: 11px; color: #999; margin-top: 8px;">
+              ⚠️ This only captures tab requests, not extension service worker requests
+            </p>
+          </div>
+
+          <div class="setting-group">
+            <h3>URL Pattern Manager</h3>
+            <p style="font-size: 12px; color: #666; margin-bottom: 8px;">
+              Paste an example URL from your extension's analytics requests:
+            </p>
+            <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+              <input
+                type="text"
+                id="exampleUrlInput"
+                placeholder="e.g., https://s.pie-staging.org/v1/batch"
+                style="flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;"
+              >
+              <button id="addUrlPatternBtn" class="btn btn-primary btn-small">Add Pattern</button>
+            </div>
+            <div id="patternsList" style="margin-bottom: 12px;"></div>
+            <details style="margin-top: 8px;">
+              <summary style="cursor: pointer; font-size: 12px; color: #667eea;">Advanced: Edit patterns manually</summary>
+              <textarea id="urlPatternsSetting" rows="3" placeholder="segment, analytics, graphql" style="margin-top: 8px;"></textarea>
+            </details>
+          </div>
+          </div><!-- End Proxy Tab -->
+
+        </div><!-- End modal-body -->
+        <div class="modal-footer">
+          <button id="saveSettingsBtn" class="btn btn-primary">Save Settings</button>
+          <button id="cancelSettingsBtn" class="btn btn-secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Source Editor Modal -->
+  <div id="sourceEditorModal" class="modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="sourceEditorTitle">Edit Source</h2>
+        <button id="closeSourceEditorBtn" class="btn-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="setting-group">
+          <label class="setting-label">Name</label>
+          <input type="text" id="sourceName" placeholder="e.g., Reddit, My App">
+        </div>
+
+        <div class="setting-group" style="display: flex; gap: 12px;">
+          <div style="flex: 1;">
+            <label class="setting-label">Icon</label>
+            <input type="text" id="sourceIcon" placeholder="📊" maxlength="2">
+          </div>
+          <div style="flex: 1;">
+            <label class="setting-label">Color</label>
+            <input type="color" id="sourceColor" value="#6366F1">
+          </div>
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label">
+            <input type="checkbox" id="sourceEnabled" checked>
+            <span>Enabled</span>
+          </label>
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label">URL Patterns</label>
+          <div id="urlPatternsList" class="patterns-list">
+            <!-- Patterns will be added here -->
+          </div>
+          <button id="addPatternBtn" class="btn btn-secondary btn-small">+ Add Pattern</button>
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label">Parser</label>
+          <select id="sourceParser">
+            <option value="generic">Generic (auto-detect fields)</option>
+            <option value="segment">Segment</option>
+            <option value="reddit">Reddit</option>
+            <option value="google-analytics">Google Analytics</option>
+            <option value="graphql">GraphQL</option>
+          </select>
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label">Field Mappings (comma-separated, tried in order)</label>
+          <div style="display: grid; gap: 8px;">
+            <div>
+              <label style="font-size: 12px; color: #666;">Event Name:</label>
+              <input type="text" id="fieldEventName" placeholder="event, eventName, action, type">
+            </div>
+            <div>
+              <label style="font-size: 12px; color: #666;">Timestamp:</label>
+              <input type="text" id="fieldTimestamp" placeholder="timestamp, time, ts, client_timestamp">
+            </div>
+            <div>
+              <label style="font-size: 12px; color: #666;">User ID:</label>
+              <input type="text" id="fieldUserId" placeholder="user_id, userId, uid">
+            </div>
+          </div>
+        </div>
+
+        <div class="setting-group" id="sourceStats" style="display: none;">
+          <label class="setting-label">Statistics</label>
+          <div style="font-size: 13px; color: #666;">
+            <div>Events Captured: <span id="statsEventsCapture">0</span></div>
+            <div>Last Captured: <span id="statsLastCaptured">Never</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="deleteSourceBtn" class="btn btn-danger" style="margin-right: auto;">Delete</button>
+        <button id="testSourceBtn" class="btn btn-secondary">Test Pattern</button>
+        <button id="saveSourceBtn" class="btn btn-primary">Save</button>
+        <button id="cancelSourceBtn" class="btn btn-secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="panel.js"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Generated MITM proxy certificates and keys
+native-host/.http-mitm-proxy/
+
+# Runtime files
+native-host/.proxy.pid
+native-host/wrapper-debug.log
+native-host/proxy.log
+
+# Temporary Chrome profile
+/tmp/chrome-proxy-profile/

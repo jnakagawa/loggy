@@ -1,0 +1,9 @@
+{
+  "name": "com.analytics_logger.proxy",
+  "description": "Analytics Logger Proxy Control",
+  "path": "/Users/jonahnakagawa/vibes/extension-analytics-logger/native-host/proxy-host.js",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://REPLACE_WITH_YOUR_EXTENSION_ID/"
+  ]
+}
