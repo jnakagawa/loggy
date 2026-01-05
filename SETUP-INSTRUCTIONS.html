@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
     <title>Analytics Logger - Setup</title>
     <style>
         body {
@@ -57,40 +58,35 @@
     </style>
 </head>
 <body>
-    <h1>📊 Analytics Logger - One-Click Setup</h1>
-    <p>Follow these steps to enable the "Start Proxy" button in the extension.</p>
+    <h1>Loggy - Quick Setup</h1>
+    <p>Enable the proxy to capture analytics from other Chrome extensions.</p>
 
     <div class="step">
-        <h2>Step 1: Get Your Extension ID</h2>
-        <p>Your extension ID is:</p>
-        <div class="extension-id" id="extensionId">Loading...</div>
-        <button id="copyIdBtn">Copy Extension ID</button>
-        <p style="font-size: 12px; color: #666;">If it says "Not Found", make sure the extension is loaded in Chrome.</p>
-    </div>
-
-    <div class="step">
-        <h2>Step 2: Run the Auto-Installer</h2>
-        <p>Click this button to automatically install the native messaging host:</p>
-        <button id="installBtn">🚀 Auto-Install (One Click)</button>
-        <p id="installStatus" style="margin-top: 10px;"></p>
-        <details style="margin-top: 10px;">
-            <summary style="cursor: pointer;">What does this do?</summary>
-            <p style="font-size: 14px; color: #666;">
-                This creates a small configuration file that allows the Chrome extension to start the proxy server.
+        <h2>Install Native Host</h2>
+        <p>Click to generate the install command:</p>
+        <button id="installBtn" style="font-size: 18px; padding: 16px 32px;">Generate Install Command</button>
+        <div id="installStatus" style="margin-top: 16px;"></div>
+        <details style="margin-top: 16px;">
+            <summary style="cursor: pointer; color: #666;">What does this do?</summary>
+            <p style="font-size: 14px; color: #666; margin-top: 8px;">
+                This creates a configuration file that allows Chrome to communicate with the proxy server.
                 The file is placed in: <code>~/Library/Application Support/Google/Chrome/NativeMessagingHosts/</code>
             </p>
         </details>
     </div>
 
     <div class="step success" id="step3" style="display: none;">
-        <h2>✅ Step 3: You're Done!</h2>
+        <h2>You're Done!</h2>
         <p>Now you can:</p>
         <ol>
-            <li>Reload the Analytics Logger extension</li>
-            <li>Open Settings in the extension</li>
+            <li>Reload the Loggy extension</li>
             <li>Click the <strong>"Start Proxy"</strong> button</li>
-            <li>Use your extensions - events will be captured!</li>
+            <li>Events from other extensions will be captured!</li>
         </ol>
+    </div>
+
+    <div style="margin-top: 20px; padding: 12px; background: #f5f5f5; border-radius: 4px; font-size: 12px; color: #666;">
+        <strong>Extension ID:</strong> <span id="extensionId" style="font-family: monospace;">Loading...</span>
     </div>
 
     <script src="setup.js"></script>

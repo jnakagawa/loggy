@@ -41,6 +41,12 @@
         <span class="stat-label">Storage:</span>
         <span class="stat-value" id="storageUsage">0%</span>
       </div>
+      <div class="stat proxy-stat">
+        <span class="stat-label">Proxy:</span>
+        <span class="stat-value" id="proxyStatusMain">Checking...</span>
+        <button id="proxyActionBtn" class="btn btn-primary btn-small">Start</button>
+        <span class="info-icon" title="Enable the proxy to capture events from other Chrome extensions.">i</span>
+      </div>
     </div>
 
     <!-- Filter Bar -->
@@ -96,7 +102,6 @@
         <div class="modal-tabs">
           <button class="tab-btn active" data-tab="general">General</button>
           <button class="tab-btn" data-tab="sources">Sources</button>
-          <button class="tab-btn" data-tab="proxy">Proxy</button>
         </div>
 
         <div class="modal-body">
@@ -159,88 +164,6 @@
               <!-- Sources will be populated here -->
             </div>
           </div><!-- End Sources Tab -->
-
-          <!-- Proxy Tab -->
-          <div id="proxyTab" class="tab-content">
-          <div class="setting-group" style="background: #e8f5e9; padding: 12px; border-radius: 4px; border: 1px solid #4caf50;">
-            <h3 style="color: #2e7d32; margin-bottom: 8px;">🔌 MITM Proxy Mode (Like Charles Proxy)</h3>
-            <p style="font-size: 12px; color: #666; margin-bottom: 12px;">
-              Intercepts HTTPS traffic from extension service workers! Just like Charles Proxy.
-            </p>
-
-            <div style="background: #fff; padding: 12px; border-radius: 4px; margin-bottom: 12px; border: 1px solid #4caf50;">
-              <p style="font-size: 13px; margin-bottom: 8px; font-weight: 600;">First time? Complete one-time setup:</p>
-              <button id="openSetupBtn" class="btn btn-primary" style="width: 100%;">
-                🚀 Open Setup Assistant
-              </button>
-              <p style="font-size: 11px; color: #666; margin-top: 8px;">
-                One-time setup (30 seconds) to enable the Start Proxy button below.
-              </p>
-            </div>
-
-            <div style="margin-bottom: 12px;">
-              <div style="font-size: 13px; margin-bottom: 8px; color: #666;">
-                Proxy Status: <span id="proxyStatus" style="font-weight: 600;">Stopped</span>
-              </div>
-              <div style="display: flex; gap: 8px;">
-                <button id="startProxyBtn" class="btn btn-primary btn-small">🚀 Start Proxy</button>
-                <button id="stopProxyBtn" class="btn btn-danger btn-small" style="display: none;">Stop Proxy</button>
-              </div>
-              <p style="font-size: 11px; color: #4caf50; margin-top: 4px; font-weight: 600;">
-                ✨ Safe to click multiple times - automatically restarts if already running
-              </p>
-              <p style="font-size: 11px; color: #999; margin-top: 4px;" id="nativeHostHint">
-                ⚠️ If the button doesn't work, click "Open Setup Assistant" above
-              </p>
-            </div>
-
-            <details style="margin-top: 8px;">
-              <summary style="cursor: pointer; font-size: 12px; color: #4caf50;">How it works (truly one-click!)</summary>
-              <p style="font-size: 11px; color: #666; margin: 8px 0 0 0; line-height: 1.6;">
-                Click "Start Proxy" and the extension automatically:
-                <br>1. Starts the proxy server on localhost:8888
-                <br>2. Launches a new Chrome window with proxy enabled
-                <br>3. Enables event polling
-                <br><br>Use your extensions in the new Chrome window (look for yellow banner) and events appear here automatically!
-              </p>
-            </details>
-          </div>
-
-          <div class="setting-group" style="background: #fff3e0; padding: 12px; border-radius: 4px; border: 1px solid #ff9800;">
-            <h3 style="color: #f57c00; margin-bottom: 8px;">🔬 Deep Inspection Mode (Tab-Level Only)</h3>
-            <p style="font-size: 12px; color: #666; margin-bottom: 12px;">
-              Captures requests from the current tab (not extensions). Shows "Debugger attached" banner.
-            </p>
-            <div id="debuggerStatus" style="margin-bottom: 8px; font-size: 13px; color: #666;">
-              Status: <span id="debuggerStatusText">Not attached</span>
-            </div>
-            <button id="toggleDebuggerBtn" class="btn btn-primary btn-small">Enable Deep Inspection</button>
-            <p style="font-size: 11px; color: #999; margin-top: 8px;">
-              ⚠️ This only captures tab requests, not extension service worker requests
-            </p>
-          </div>
-
-          <div class="setting-group">
-            <h3>URL Pattern Manager</h3>
-            <p style="font-size: 12px; color: #666; margin-bottom: 8px;">
-              Paste an example URL from your extension's analytics requests:
-            </p>
-            <div style="display: flex; gap: 8px; margin-bottom: 12px;">
-              <input
-                type="text"
-                id="exampleUrlInput"
-                placeholder="e.g., https://s.pie-staging.org/v1/batch"
-                style="flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px;"
-              >
-              <button id="addUrlPatternBtn" class="btn btn-primary btn-small">Add Pattern</button>
-            </div>
-            <div id="patternsList" style="margin-bottom: 12px;"></div>
-            <details style="margin-top: 8px;">
-              <summary style="cursor: pointer; font-size: 12px; color: #667eea;">Advanced: Edit patterns manually</summary>
-              <textarea id="urlPatternsSetting" rows="3" placeholder="segment, analytics, graphql" style="margin-top: 8px;"></textarea>
-            </details>
-          </div>
-          </div><!-- End Proxy Tab -->
 
         </div><!-- End modal-body -->
         <div class="modal-footer">
@@ -332,6 +255,26 @@
         <button id="testSourceBtn" class="btn btn-secondary">Test Pattern</button>
         <button id="saveSourceBtn" class="btn btn-primary">Save</button>
         <button id="cancelSourceBtn" class="btn btn-secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm Modal -->
+  <div id="confirmModal" class="modal" style="display: none;">
+    <div class="modal-content confirm-modal-content">
+      <div class="modal-header">
+        <h2 id="confirmTitle">Confirm</h2>
+      </div>
+      <div class="modal-body">
+        <p id="confirmMessage">Are you sure?</p>
+        <label class="setting-label" id="confirmDontAskLabel" style="margin-top: 16px;">
+          <input type="checkbox" id="confirmDontAsk">
+          <span>Don't ask me again</span>
+        </label>
+      </div>
+      <div class="modal-footer">
+        <button id="confirmCancelBtn" class="btn btn-secondary">Cancel</button>
+        <button id="confirmOkBtn" class="btn btn-primary">OK</button>
       </div>
     </div>
   </div>

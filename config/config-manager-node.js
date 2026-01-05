@@ -149,7 +149,9 @@ const FALLBACK_CONFIG = {
   urlPatterns: [
     { pattern: '/analytics', type: 'contains' },
     { pattern: '/events', type: 'contains' },
-    { pattern: '/track', type: 'contains' }
+    { pattern: '/evs', type: 'contains' },
+    { pattern: '/track', type: 'contains' },
+    { pattern: '/collect', type: 'contains' }
   ],
   parser: 'generic'
 };
