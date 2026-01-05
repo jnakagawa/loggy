@@ -9,7 +9,6 @@
     "tabs",
     "activeTab",
     "sidePanel",
-    "debugger",
     "nativeMessaging"
   ],
   "host_permissions": [

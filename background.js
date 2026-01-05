@@ -21,24 +21,7 @@ let settings = {
   captureCustom: true,
   persistEvents: false,
   maxEvents: 1000,
-  useDebugger: false,  // Deep inspection mode for extension requests
-  debuggerTabId: null,
-  useProxy: false,     // Poll local proxy server for events
-  urlPatterns: [
-    'segment',
-    'analytics',
-    'google-analytics',
-    'graphql',
-    'api',
-    '/v1/batch',      // Segment batch endpoint
-    '/v1/track',      // Segment track endpoint
-    'pie.org',        // Pie production domain
-    'pie-staging',    // Pie staging domain
-    '/collect',       // Google Analytics
-    '/events',        // Common analytics endpoint
-    'reddit',         // Reddit analytics
-    'shreddit'        // Reddit new stack
-  ]
+  useProxy: false      // Poll local proxy server for events
 };
 
 // Load settings on startup and then register listener
@@ -68,12 +51,6 @@ async function initialize() {
   console.log('[Analytics Logger] 📋 Extension enabled:', settings.enabled);
   console.log('[Analytics Logger] 📋 Active sources:', configStats.enabledSources);
   console.log('[Analytics Logger] 📋 Proxy mode:', settings.useProxy);
-  console.log('[Analytics Logger] 📋 Debugger mode:', settings.useDebugger);
-
-  // Start debugger mode if enabled
-  if (settings.useDebugger && settings.debuggerTabId) {
-    await enableDebuggerMode(settings.debuggerTabId);
-  }
 
   // Start proxy polling if enabled
   if (settings.useProxy) {
@@ -145,122 +122,6 @@ function stopProxyPolling() {
 
 // Initialize immediately
 initialize();
-
-// Debugger Mode - Captures ALL network requests including from extensions
-let debuggerAttached = false;
-const debuggerRequests = new Map();
-
-async function enableDebuggerMode(tabId) {
-  try {
-    if (debuggerAttached) {
-      console.log('[Analytics Logger] Debugger already attached');
-      return;
-    }
-
-    // Attach debugger
-    await chrome.debugger.attach({ tabId }, '1.3');
-    debuggerAttached = true;
-    console.log('[Analytics Logger] Debugger attached to tab:', tabId);
-
-    // Enable Network domain
-    await chrome.debugger.sendCommand({ tabId }, 'Network.enable');
-    console.log('[Analytics Logger] Network monitoring enabled');
-
-    settings.debuggerTabId = tabId;
-    await chrome.storage.local.set({ settings });
-  } catch (err) {
-    console.error('[Analytics Logger] Error enabling debugger:', err);
-    debuggerAttached = false;
-  }
-}
-
-async function disableDebuggerMode() {
-  if (!debuggerAttached || !settings.debuggerTabId) return;
-
-  try {
-    await chrome.debugger.detach({ tabId: settings.debuggerTabId });
-    debuggerAttached = false;
-    settings.debuggerTabId = null;
-    await chrome.storage.local.set({ settings });
-    console.log('[Analytics Logger] Debugger detached');
-  } catch (err) {
-    console.error('[Analytics Logger] Error detaching debugger:', err);
-  }
-}
-
-// Listen for debugger events
-chrome.debugger.onEvent.addListener((source, method, params) => {
-  if (!settings.enabled || !settings.useDebugger) return;
-
-  // Capture request data
-  if (method === 'Network.requestWillBeSent') {
-    const request = params.request;
-
-    if (request.method === 'POST') {
-      console.log('[Analytics Logger] [Debugger] POST request detected:', {
-        url: request.url,
-        method: request.method,
-        hasPostData: !!request.postData
-      });
-
-      // Store for later when we get response body
-      debuggerRequests.set(params.requestId, {
-        url: request.url,
-        method: request.method,
-        postData: request.postData,
-        headers: request.headers
-      });
-    }
-  }
-
-  // Get response body
-  if (method === 'Network.loadingFinished') {
-    const requestId = params.requestId;
-    const requestData = debuggerRequests.get(requestId);
-
-    if (requestData && requestData.method === 'POST') {
-      // Check if URL matches patterns
-      const matchesPattern = settings.urlPatterns.some(pattern =>
-        requestData.url.toLowerCase().includes(pattern.toLowerCase())
-      );
-
-      if (matchesPattern) {
-        console.log('[Analytics Logger] [Debugger] Matched URL, parsing...');
-
-        try {
-          // Parse the POST data
-          const postData = requestData.postData ? JSON.parse(requestData.postData) : null;
-
-          if (postData) {
-            const events = AnalyticsParser.parseRequest(
-              requestData.url,
-              { raw: [{ bytes: new TextEncoder().encode(requestData.postData).buffer }] },
-              'debugger'
-            );
-
-            if (events.length > 0) {
-              console.log(`[Analytics Logger] [Debugger] ✓ Captured ${events.length} event(s)`);
-              storage.addEvents(events);
-              notifyPanels('eventsAdded', events);
-            }
-          }
-        } catch (err) {
-          console.error('[Analytics Logger] [Debugger] Error parsing:', err);
-        }
-      }
-
-      // Clean up
-      debuggerRequests.delete(requestId);
-    }
-  }
-});
-
-// Auto-detach on tab close
-chrome.debugger.onDetach.addListener((source, reason) => {
-  console.log('[Analytics Logger] Debugger detached:', reason);
-  debuggerAttached = false;
-  settings.debuggerTabId = null;
-});
 
 // Network request interceptor
 chrome.webRequest.onBeforeRequest.addListener(
@@ -446,22 +307,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       sendResponse({ success: true });
       break;
-
-    case 'enableDebugger':
-      enableDebuggerMode(message.tabId).then(() => {
-        sendResponse({ success: true });
-      }).catch(err => {
-        sendResponse({ success: false, error: err.message });
-      });
-      return true; // Keep channel open
-
-    case 'disableDebugger':
-      disableDebuggerMode().then(() => {
-        sendResponse({ success: true });
-      }).catch(err => {
-        sendResponse({ success: false, error: err.message });
-      });
-      return true; // Keep channel open
 
     case 'getCurrentTab':
       chrome.tabs.query({ active: true, currentWindow: true }).then(tabs => {

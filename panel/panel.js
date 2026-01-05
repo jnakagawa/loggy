@@ -45,24 +45,25 @@ class AnalyticsLoggerUI {
       closeSettingsBtn: document.getElementById('closeSettingsBtn'),
       saveSettingsBtn: document.getElementById('saveSettingsBtn'),
       cancelSettingsBtn: document.getElementById('cancelSettingsBtn'),
-      exampleUrlInput: document.getElementById('exampleUrlInput'),
-      addUrlPatternBtn: document.getElementById('addUrlPatternBtn'),
-      patternsList: document.getElementById('patternsList'),
-      toggleDebuggerBtn: document.getElementById('toggleDebuggerBtn'),
-      debuggerStatusText: document.getElementById('debuggerStatusText'),
-      startProxyBtn: document.getElementById('startProxyBtn'),
-      stopProxyBtn: document.getElementById('stopProxyBtn'),
-      proxyStatus: document.getElementById('proxyStatus')
+      // Main view proxy controls
+      proxyStatusMain: document.getElementById('proxyStatusMain'),
+      proxyActionBtn: document.getElementById('proxyActionBtn'),
+      // Confirm modal
+      confirmModal: document.getElementById('confirmModal'),
+      confirmTitle: document.getElementById('confirmTitle'),
+      confirmMessage: document.getElementById('confirmMessage'),
+      confirmDontAsk: document.getElementById('confirmDontAsk'),
+      confirmDontAskLabel: document.getElementById('confirmDontAskLabel'),
+      confirmOkBtn: document.getElementById('confirmOkBtn'),
+      confirmCancelBtn: document.getElementById('confirmCancelBtn')
     };
 
-    // URL patterns array
-    this.urlPatterns = [];
-
-    // Debugger state
-    this.debuggerEnabled = false;
+    // Confirmation preferences (stored in chrome.storage)
+    this.confirmPrefs = {};
 
     // Proxy state
     this.proxyRunning = false;
+    this.nativeHostAvailable = null; // null = checking, true/false after check
 
     // Pause/Play state
     this.isPaused = false;
@@ -76,7 +77,66 @@ class AnalyticsLoggerUI {
     // Load initial events
     await this.loadEvents();
 
+    // Load confirmation preferences
+    await this.loadConfirmPrefs();
+
+    // Check if native messaging host is available
+    this.checkNativeHost();
+
     console.log('[Panel] Initialized');
+  }
+
+  async loadConfirmPrefs() {
+    try {
+      const result = await chrome.storage.local.get('confirmPrefs');
+      this.confirmPrefs = result.confirmPrefs || {};
+    } catch (e) {
+      this.confirmPrefs = {};
+    }
+  }
+
+  async saveConfirmPrefs() {
+    await chrome.storage.local.set({ confirmPrefs: this.confirmPrefs });
+  }
+
+  showConfirm(key, title, message, showDontAsk = true) {
+    return new Promise((resolve) => {
+      // Check if user said "don't ask again"
+      if (this.confirmPrefs[key]) {
+        resolve(true);
+        return;
+      }
+
+      // Show the modal
+      this.elements.confirmTitle.textContent = title;
+      this.elements.confirmMessage.textContent = message;
+      this.elements.confirmDontAsk.checked = false;
+      this.elements.confirmDontAskLabel.style.display = showDontAsk ? 'flex' : 'none';
+      this.elements.confirmModal.style.display = 'flex';
+
+      const cleanup = () => {
+        this.elements.confirmModal.style.display = 'none';
+        this.elements.confirmOkBtn.removeEventListener('click', onOk);
+        this.elements.confirmCancelBtn.removeEventListener('click', onCancel);
+      };
+
+      const onOk = async () => {
+        if (this.elements.confirmDontAsk.checked) {
+          this.confirmPrefs[key] = true;
+          await this.saveConfirmPrefs();
+        }
+        cleanup();
+        resolve(true);
+      };
+
+      const onCancel = () => {
+        cleanup();
+        resolve(false);
+      };
+
+      this.elements.confirmOkBtn.addEventListener('click', onOk);
+      this.elements.confirmCancelBtn.addEventListener('click', onCancel);
+    });
   }
 
   setupEventListeners() {
@@ -146,38 +206,48 @@ class AnalyticsLoggerUI {
       }
     });
 
-    // URL Pattern Manager
-    this.elements.addUrlPatternBtn.addEventListener('click', () => {
-      this.addUrlPattern();
-    });
-
-    this.elements.exampleUrlInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') {
-        this.addUrlPattern();
+    // Proxy control (main view)
+    this.elements.proxyActionBtn.addEventListener('click', () => {
+      if (!this.nativeHostAvailable) {
+        this.openSetupAssistant();
+      } else if (this.proxyRunning) {
+        this.stopProxy();
+      } else {
+        this.startProxy();
       }
     });
 
-    // Debugger toggle
-    this.elements.toggleDebuggerBtn.addEventListener('click', () => {
-      this.toggleDebugger();
-    });
+    // Set up event delegation for JSON expandable sections (once during init)
+    this.elements.eventsList.addEventListener('click', (e) => {
+      const header = e.target.closest('.json-expand-header');
+      if (!header) return;
 
-    // Proxy control
-    this.elements.startProxyBtn.addEventListener('click', () => {
-      this.startProxy();
-    });
+      const expandable = header.parentElement;
+      if (!expandable || !expandable.classList.contains('json-expandable')) {
+        return;
+      }
 
-    this.elements.stopProxyBtn.addEventListener('click', () => {
-      this.stopProxy();
-    });
+      e.stopPropagation();
+      expandable.classList.toggle('expanded');
+    }, true); // Use capture phase
 
-    // Setup assistant
-    const openSetupBtn = document.getElementById('openSetupBtn');
-    if (openSetupBtn) {
-      openSetupBtn.addEventListener('click', () => {
-        this.openSetupAssistant();
+    // Set up click-to-copy for JSON primitive values
+    this.elements.eventsList.addEventListener('click', (e) => {
+      const primitive = e.target.closest('.json-primitive');
+      if (!primitive || !primitive.dataset.value) return;
+
+      const value = primitive.dataset.value;
+
+      // Copy to clipboard
+      navigator.clipboard.writeText(value).then(() => {
+        // Show "Copied!" popup
+        this.showCopiedPopup(e.clientX, e.clientY);
+      }).catch(err => {
+        console.error('[Panel] Failed to copy:', err);
       });
-    }
+
+      e.stopPropagation();
+    });
   }
 
   openSetupAssistant() {
@@ -185,6 +255,77 @@ class AnalyticsLoggerUI {
     const extensionId = chrome.runtime.id;
     const setupUrl = chrome.runtime.getURL('SETUP-INSTRUCTIONS.html') + '?id=' + extensionId;
     chrome.tabs.create({ url: setupUrl });
+  }
+
+  async checkNativeHost() {
+    return new Promise((resolve) => {
+      try {
+        const port = chrome.runtime.connectNative('com.analytics_logger.proxy');
+
+        port.onDisconnect.addListener(() => {
+          if (chrome.runtime.lastError) {
+            // Native host not available
+            this.nativeHostAvailable = false;
+          } else {
+            this.nativeHostAvailable = true;
+          }
+          this.updateProxyMainUI();
+          resolve(this.nativeHostAvailable);
+        });
+
+        // Send a ping to check if host responds
+        port.postMessage({ action: 'ping' });
+
+        // Give it a moment, then disconnect
+        setTimeout(() => {
+          if (this.nativeHostAvailable === null) {
+            this.nativeHostAvailable = true;
+            this.updateProxyMainUI();
+            resolve(true);
+          }
+          try { port.disconnect(); } catch (e) {}
+        }, 500);
+
+      } catch (err) {
+        this.nativeHostAvailable = false;
+        this.updateProxyMainUI();
+        resolve(false);
+      }
+    });
+  }
+
+  updateProxyMainUI() {
+    const statusEl = this.elements.proxyStatusMain;
+    const btnEl = this.elements.proxyActionBtn;
+
+    // Remove all status classes
+    statusEl.classList.remove('running', 'stopped', 'setup-required');
+
+    if (this.nativeHostAvailable === null) {
+      // Still checking
+      statusEl.textContent = 'Checking...';
+      statusEl.classList.add('stopped');
+      btnEl.textContent = '...';
+      btnEl.disabled = true;
+    } else if (!this.nativeHostAvailable) {
+      // Native host not set up
+      statusEl.textContent = 'Not Configured';
+      statusEl.classList.add('setup-required');
+      btnEl.textContent = 'Setup';
+      btnEl.disabled = false;
+    } else if (this.proxyRunning) {
+      // Proxy running
+      statusEl.textContent = 'Running';
+      statusEl.classList.add('running');
+      btnEl.textContent = 'Stop';
+      btnEl.disabled = false;
+    } else {
+      // Proxy stopped
+      statusEl.textContent = 'Stopped';
+      statusEl.classList.add('stopped');
+      btnEl.textContent = 'Start';
+      btnEl.disabled = false;
+    }
   }
 
   async startProxy() {
@@ -209,13 +350,16 @@ class AnalyticsLoggerUI {
             settings: settings
           });
 
+          // Sync sources to proxy after a short delay (give proxy time to start API)
+          setTimeout(() => this.syncSourcesToProxy(), 1000);
+
           // Show success message
           if (response.autoLaunched) {
             alert('✅ MITM Proxy Started (Like Charles Proxy)!\n\n' +
-                  'A new Chrome window opened with HTTPS interception enabled.\n\n' +
-                  'This proxy can now capture analytics from extension service workers!\n\n' +
-                  'Use your extensions (like Pie) in the new window and events will appear here.\n\n' +
-                  'Tip: Look for the yellow "controlled by automated test software" banner.');
+              'A new Chrome window opened with HTTPS interception enabled.\n\n' +
+              'This proxy can now capture analytics from extension service workers!\n\n' +
+              'Use your extensions (like Pie) in the new window and events will appear here.\n\n' +
+              'Tip: Look for the yellow "controlled by automated test software" banner.');
           } else {
             alert(response.message || 'Proxy started successfully!');
           }
@@ -276,221 +420,35 @@ class AnalyticsLoggerUI {
   }
 
   updateProxyUI() {
-    if (this.proxyRunning) {
-      this.elements.proxyStatus.textContent = 'Running ✓';
-      this.elements.proxyStatus.style.color = '#4caf50';
-      this.elements.startProxyBtn.style.display = 'none';
-      this.elements.stopProxyBtn.style.display = 'inline-block';
-    } else {
-      this.elements.proxyStatus.textContent = 'Stopped';
-      this.elements.proxyStatus.style.color = '#999';
-      this.elements.startProxyBtn.style.display = 'inline-block';
-      this.elements.stopProxyBtn.style.display = 'none';
-    }
+    // Update main view UI
+    this.updateProxyMainUI();
   }
 
-  async toggleDebugger() {
-    if (this.debuggerEnabled) {
-      // Disable
-      try {
-        const response = await chrome.runtime.sendMessage({ action: 'disableDebugger' });
-        if (response.success) {
-          this.debuggerEnabled = false;
-          this.updateDebuggerUI();
-          console.log('[Panel] Debugger disabled');
-        }
-      } catch (err) {
-        console.error('[Panel] Error disabling debugger:', err);
-        alert('Error disabling debugger: ' + err.message);
-      }
-    } else {
-      // Enable - get current tab
-      try {
-        const tabResponse = await chrome.runtime.sendMessage({ action: 'getCurrentTab' });
-
-        if (!tabResponse.success || !tabResponse.tabId) {
-          alert('Could not get current tab. Please open a tab and try again.');
-          return;
-        }
-
-        const response = await chrome.runtime.sendMessage({
-          action: 'enableDebugger',
-          tabId: tabResponse.tabId
-        });
-
-        if (response.success) {
-          this.debuggerEnabled = true;
-          this.updateDebuggerUI();
-          console.log('[Panel] Debugger enabled');
-          alert('Deep Inspection Mode enabled! You\'ll see a "Debugger attached" banner on the current tab. This is normal and allows us to capture all requests.');
-        }
-      } catch (err) {
-        console.error('[Panel] Error enabling debugger:', err);
-        alert('Error enabling debugger: ' + err.message);
-      }
-    }
-  }
-
-  updateDebuggerUI() {
-    if (this.debuggerEnabled) {
-      this.elements.debuggerStatusText.textContent = 'Attached ✓';
-      this.elements.debuggerStatusText.style.color = '#4caf50';
-      this.elements.toggleDebuggerBtn.textContent = 'Disable Deep Inspection';
-      this.elements.toggleDebuggerBtn.classList.remove('btn-primary');
-      this.elements.toggleDebuggerBtn.classList.add('btn-danger');
-    } else {
-      this.elements.debuggerStatusText.textContent = 'Not attached';
-      this.elements.debuggerStatusText.style.color = '#666';
-      this.elements.toggleDebuggerBtn.textContent = 'Enable Deep Inspection';
-      this.elements.toggleDebuggerBtn.classList.remove('btn-danger');
-      this.elements.toggleDebuggerBtn.classList.add('btn-primary');
-    }
-  }
-
-  /**
-   * Extract patterns from a URL
-   * Example: https://s.pie-staging.org/v1/batch
-   * Returns: ['pie-staging', '/v1/batch', 's.pie-staging.org']
-   */
-  extractPatternsFromUrl(url) {
-    const patterns = [];
-
+  async syncSourcesToProxy() {
     try {
-      const urlObj = new URL(url);
+      // Get all sources from the extension
+      const response = await chrome.runtime.sendMessage({ action: 'getSources' });
 
-      // Add domain-based patterns
-      const hostname = urlObj.hostname;
-      patterns.push(hostname); // Full domain
-
-      // Add main domain part (e.g., "pie-staging" from "s.pie-staging.org")
-      const domainParts = hostname.split('.');
-      if (domainParts.length >= 2) {
-        patterns.push(domainParts[domainParts.length - 2]); // Main part
+      if (!response.success) {
+        console.error('[Panel] Failed to get sources for sync');
+        return;
       }
 
-      // Add path-based patterns
-      const pathname = urlObj.pathname;
-      if (pathname && pathname !== '/') {
-        patterns.push(pathname); // Full path
-
-        // Add significant path segments
-        const pathSegments = pathname.split('/').filter(s => s);
-        if (pathSegments.length > 0) {
-          // Add first segment
-          patterns.push(`/${pathSegments[0]}`);
-
-          // Add first two segments if available
-          if (pathSegments.length > 1) {
-            patterns.push(`/${pathSegments[0]}/${pathSegments[1]}`);
-          }
-        }
-      }
-
-    } catch (err) {
-      console.error('[Panel] Invalid URL:', err);
-    }
-
-    return patterns;
-  }
-
-  /**
-   * Add URL pattern from example URL input
-   */
-  addUrlPattern() {
-    const url = this.elements.exampleUrlInput.value.trim();
-
-    if (!url) {
-      alert('Please enter a URL');
-      return;
-    }
-
-    const extractedPatterns = this.extractPatternsFromUrl(url);
-
-    if (extractedPatterns.length === 0) {
-      alert('Could not extract patterns from URL. Please check the format.');
-      return;
-    }
-
-    // Show selection dialog
-    const selectedPattern = this.selectPatternDialog(url, extractedPatterns);
-
-    if (selectedPattern) {
-      // Add to patterns if not already present
-      if (!this.urlPatterns.includes(selectedPattern)) {
-        this.urlPatterns.push(selectedPattern);
-        this.renderPatterns();
-
-        // Clear input
-        this.elements.exampleUrlInput.value = '';
-
-        // Show success message
-        console.log('[Panel] Added pattern:', selectedPattern);
-      } else {
-        alert('This pattern already exists!');
-      }
-    }
-  }
-
-  /**
-   * Show dialog to select which pattern to use
-   */
-  selectPatternDialog(url, patterns) {
-    const message = `Found ${patterns.length} possible pattern(s) from:\n${url}\n\n` +
-                   patterns.map((p, i) => `${i + 1}. "${p}"`).join('\n') +
-                   '\n\nEnter the number of the pattern to use (or cancel):';
-
-    const choice = prompt(message, '1');
-
-    if (choice === null) return null; // Cancelled
-
-    const index = parseInt(choice) - 1;
-
-    if (index >= 0 && index < patterns.length) {
-      return patterns[index];
-    }
-
-    // Default to first pattern if invalid choice
-    return patterns[0];
-  }
-
-  /**
-   * Render pattern tags
-   */
-  renderPatterns() {
-    this.elements.patternsList.innerHTML = this.urlPatterns
-      .map(pattern => `
-        <div class="pattern-tag">
-          <span>${this.escapeHtml(pattern)}</span>
-          <button class="pattern-tag-remove" data-pattern="${this.escapeHtml(pattern)}" title="Remove">×</button>
-        </div>
-      `)
-      .join('');
-
-    // Sync the textarea with the current patterns
-    const textareaElement = document.getElementById('urlPatternsSetting');
-    if (textareaElement) {
-      textareaElement.value = this.urlPatterns.join(', ');
-    }
-
-    // Add click listeners to remove buttons
-    this.elements.patternsList.querySelectorAll('.pattern-tag-remove').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const pattern = btn.dataset.pattern;
-        this.removePattern(pattern);
+      // Send sources to proxy
+      const syncResponse = await fetch('http://localhost:8889/sources', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(response.sources)
       });
-    });
-  }
 
-  /**
-   * Remove a pattern
-   */
-  removePattern(pattern) {
-    const index = this.urlPatterns.indexOf(pattern);
-    if (index > -1) {
-      this.urlPatterns.splice(index, 1);
-      this.renderPatterns();
-      console.log('[Panel] Removed pattern:', pattern);
+      if (syncResponse.ok) {
+        const result = await syncResponse.json();
+        console.log(`[Panel] ✅ Synced ${result.synced} sources to proxy`);
+      } else {
+        console.error('[Panel] Failed to sync sources to proxy:', syncResponse.status);
+      }
+    } catch (err) {
+      console.log('[Panel] Could not sync sources to proxy (proxy may not be running):', err.message);
     }
   }
 
@@ -512,6 +470,7 @@ class AnalyticsLoggerUI {
         this.events.unshift(...message.data);
         this.updateEventTypeFilter();
         this.applyFilters();
+        this.updateStats(); // Update stats to reflect new total count
       } else if (message.action === 'eventsCleared') {
         // Events were cleared (possibly by another panel or external action)
         this.events = [];
@@ -567,20 +526,18 @@ class AnalyticsLoggerUI {
   }
 
   async updateStats() {
-    try {
-      const response = await chrome.runtime.sendMessage({ action: 'getStats' });
+    // Use the actual loaded events count instead of background stats
+    // This ensures the UI always shows the correct count for what's actually displayed
+    this.elements.totalEvents.textContent = this.events.length;
 
-      if (response.success) {
-        const stats = response.stats;
-        this.elements.totalEvents.textContent = stats.total;
+    // Calculate storage usage (rough estimate based on actual events)
+    const storageUsage = (this.events.length / 1000) * 100;
+    this.elements.storageUsage.textContent = `${Math.min(100, storageUsage).toFixed(0)}%`;
 
-        // Calculate storage usage (rough estimate)
-        const storageUsage = (stats.total / 1000) * 100;
-        this.elements.storageUsage.textContent = `${Math.min(100, storageUsage).toFixed(0)}%`;
-      }
-    } catch (err) {
-      console.error('[Panel] Error updating stats:', err);
-    }
+    // Enable/disable export buttons based on events count
+    const hasEvents = this.events.length > 0;
+    this.elements.exportJSONBtn.disabled = !hasEvents;
+    this.elements.exportCSVBtn.disabled = !hasEvents;
   }
 
   updateEventTypeFilter() {
@@ -662,19 +619,103 @@ class AnalyticsLoggerUI {
     this.elements.emptyState.style.display = 'none';
     this.elements.eventsList.style.display = 'flex';
 
+    // Preserve expanded state before re-rendering
+    const expandedEventIds = new Set();
+    const expandedCollapsibleSections = new Map(); // Map of eventId -> Set of section indices
+    const expandedJsonSections = new Map(); // Map of eventId -> Set of JSON paths
+
+    this.elements.eventsList.querySelectorAll('.event-card.expanded').forEach((card) => {
+      const eventId = card.dataset.id;
+      if (eventId) {
+        expandedEventIds.add(eventId);
+      }
+    });
+
+    this.elements.eventsList.querySelectorAll('.event-card').forEach((card) => {
+      const eventId = card.dataset.id;
+      if (!eventId) return;
+
+      // Track expanded collapsible sections (Full Event Data sections)
+      const collapsibleSections = card.querySelectorAll('.collapsible-section.expanded');
+      if (collapsibleSections.length > 0) {
+        const sectionIndices = new Set();
+        collapsibleSections.forEach((section, index) => {
+          sectionIndices.add(index);
+        });
+        expandedCollapsibleSections.set(eventId, sectionIndices);
+      }
+
+      // Track expanded JSON sections
+      const jsonExpandables = card.querySelectorAll('.json-expandable.expanded');
+      if (jsonExpandables.length > 0) {
+        const jsonPaths = new Set();
+        jsonExpandables.forEach((expandable) => {
+          // Use the data-path attribute if available, or construct from parent hierarchy
+          const path = expandable.dataset.path || expandable.querySelector('.json-key')?.textContent || '';
+          if (path) {
+            jsonPaths.add(path);
+          }
+        });
+        if (jsonPaths.size > 0) {
+          expandedJsonSections.set(eventId, jsonPaths);
+        }
+      }
+    });
+
     // Render event cards
     this.elements.eventsList.innerHTML = this.filteredEvents
       .map(event => this.renderEventCard(event))
       .join('');
+
+    // Restore expanded state after re-rendering
+    this.elements.eventsList.querySelectorAll('.event-card').forEach((card) => {
+      const eventId = card.dataset.id;
+      if (eventId && expandedEventIds.has(eventId)) {
+        card.classList.add('expanded');
+      }
+
+      // Restore expanded collapsible sections
+      if (eventId && expandedCollapsibleSections.has(eventId)) {
+        const sectionIndices = expandedCollapsibleSections.get(eventId);
+        const collapsibleSections = card.querySelectorAll('.collapsible-section');
+        collapsibleSections.forEach((section, index) => {
+          if (sectionIndices.has(index)) {
+            section.classList.add('expanded');
+          }
+        });
+      }
+
+      // Restore expanded JSON sections
+      if (eventId && expandedJsonSections.has(eventId)) {
+        const jsonPaths = expandedJsonSections.get(eventId);
+        const jsonExpandables = card.querySelectorAll('.json-expandable');
+        jsonExpandables.forEach((expandable) => {
+          const path = expandable.dataset.path || expandable.querySelector('.json-key')?.textContent || '';
+          if (path && jsonPaths.has(path)) {
+            expandable.classList.add('expanded');
+          }
+        });
+      }
+    });
 
     // Add click listeners to toggle expansion
     this.elements.eventsList.querySelectorAll('.event-card').forEach((card) => {
       card.addEventListener('click', (e) => {
         // Don't toggle expansion if clicking on the toggle button, expandable sections, or collapsible sections
         if (!e.target.closest('.view-toggle-btn') &&
-            !e.target.closest('.json-expandable') &&
-            !e.target.closest('.collapsible-section')) {
+          !e.target.closest('.json-expandable') &&
+          !e.target.closest('.collapsible-section') &&
+          !e.target.closest('.json-primitive')) {
+
+          const wasExpanded = card.classList.contains('expanded');
           card.classList.toggle('expanded');
+
+          // If we just expanded the card, auto-expand all nested JSON sections
+          if (!wasExpanded && card.classList.contains('expanded')) {
+            card.querySelectorAll('.json-expandable').forEach(expandable => {
+              expandable.classList.add('expanded');
+            });
+          }
         }
       });
     });
@@ -705,17 +746,6 @@ class AnalyticsLoggerUI {
       });
     });
 
-    // Add click listeners for expandable JSON sections
-    this.elements.eventsList.querySelectorAll('.json-expandable').forEach((expandable) => {
-      const header = expandable.querySelector('.json-expand-header');
-      if (header) {
-        header.addEventListener('click', (e) => {
-          e.stopPropagation();
-          expandable.classList.toggle('expanded');
-        });
-      }
-    });
-
     // Add click listeners for collapsible sections (Full Event Data)
     this.elements.eventsList.querySelectorAll('.collapsible-section').forEach((section) => {
       const header = section.querySelector('.event-section-header');
@@ -742,19 +772,16 @@ class AnalyticsLoggerUI {
         </div>
         <div class="event-meta">
           <div class="event-meta-item">
-            <span>🕒</span>
-            <span>${timestamp}</span>
+            <span class="event-time">${timestamp}</span>
           </div>
           ${event.userId ? `
             <div class="event-meta-item">
-              <span>👤</span>
-              <span>${this.escapeHtml(event.userId)}</span>
+              <span class="event-user">${this.escapeHtml(event.userId)}</span>
             </div>
           ` : ''}
           ${event.type ? `
             <div class="event-meta-item">
-              <span>📝</span>
-              <span>${this.escapeHtml(event.type)}</span>
+              <span class="event-type-label">${this.escapeHtml(event.type)}</span>
             </div>
           ` : ''}
         </div>
@@ -847,23 +874,15 @@ class AnalyticsLoggerUI {
   }
 
   /**
-   * Render a primitive value with type indicator and icon
+   * Render a primitive value (without icons, with copy support)
    */
   renderPrimitive(value, type) {
-    const icons = {
-      string: '📝',
-      number: '🔢',
-      boolean: value ? '✅' : '❌',
-      null: '∅'
-    };
-
-    const icon = icons[type] || '?';
     const displayValue = type === 'string' ? `"${this.escapeHtml(value)}"` : this.escapeHtml(String(value));
     const cssClass = `json-${type}-value`;
+    const rawValue = this.escapeHtml(String(value));
 
     return `
-      <span class="json-primitive">
-        <span class="json-icon">${icon}</span>
+      <span class="json-primitive" data-value="${rawValue}" title="Click to copy">
         <span class="${cssClass}">${displayValue}</span>
       </span>
     `;
@@ -938,6 +957,17 @@ class AnalyticsLoggerUI {
       const value = obj[key];
       const renderedValue = this.renderStructuredJSON(value, depth + 1, key, parentSection);
 
+      // Check if value is an object or array (will render as expandable)
+      const valueType = value === null ? 'null' : (Array.isArray(value) ? 'array' : typeof value);
+      const isExpandable = valueType === 'object' || valueType === 'array';
+
+      // If expandable (object/array), render directly without key-value wrapper
+      // since the expandable header already shows the key
+      if (isExpandable) {
+        return `<div class="json-item">${renderedValue}</div>`;
+      }
+
+      // For primitives, show key-value pair
       return `
         <div class="json-item">
           <div class="json-key-value">
@@ -948,14 +978,14 @@ class AnalyticsLoggerUI {
       `;
     }).join('');
 
-    // Auto-expand if this is inside the Properties section
-    const expandedClass = parentSection === 'properties' ? 'expanded' : '';
+    // Don't auto-expand - let user control expansion
+    const expandedClass = '';
 
     return `
       <div class="json-expandable ${expandedClass}" data-id="${uniqueId}">
         <div class="json-expand-header">
           <span class="json-expand-icon">▶</span>
-          <span class="json-expand-label">📦 ${this.escapeHtml(label)}</span>
+          <span class="json-expand-label">${this.escapeHtml(label)}</span>
           <span class="json-expand-count">${count}</span>
         </div>
         <div class="json-expand-content">
@@ -1023,6 +1053,16 @@ class AnalyticsLoggerUI {
     const content = arr.map((item, index) => {
       const renderedValue = this.renderStructuredJSON(item, depth + 1, `[${index}]`, parentSection);
 
+      // Check if item is an object or array (will render as expandable)
+      const valueType = item === null ? 'null' : (Array.isArray(item) ? 'array' : typeof item);
+      const isExpandable = valueType === 'object' || valueType === 'array';
+
+      // If expandable (object/array), render directly without key-value wrapper
+      if (isExpandable) {
+        return `<div class="json-item">${renderedValue}</div>`;
+      }
+
+      // For primitives, show key-value pair with index
       return `
         <div class="json-item">
           <div class="json-key-value">
@@ -1033,14 +1073,14 @@ class AnalyticsLoggerUI {
       `;
     }).join('');
 
-    // Auto-expand if this is inside the Properties section
-    const expandedClass = parentSection === 'properties' ? 'expanded' : '';
+    // Don't auto-expand - let user control expansion
+    const expandedClass = '';
 
     return `
       <div class="json-expandable ${expandedClass}" data-id="${uniqueId}">
         <div class="json-expand-header">
           <span class="json-expand-icon">▶</span>
-          <span class="json-expand-label">📋 ${this.escapeHtml(label)}</span>
+          <span class="json-expand-label">${this.escapeHtml(label)}</span>
           <span class="json-expand-count">${count}</span>
         </div>
         <div class="json-expand-content">
@@ -1066,7 +1106,12 @@ class AnalyticsLoggerUI {
   }
 
   async clearEvents() {
-    if (!confirm('Clear all captured events? This cannot be undone.')) {
+    const confirmed = await this.showConfirm(
+      'clearEvents',
+      'Clear Events',
+      'Clear all captured events? This cannot be undone.'
+    );
+    if (!confirmed) {
       return;
     }
 
@@ -1156,17 +1201,6 @@ class AnalyticsLoggerUI {
         document.getElementById('captureGraphQLSetting').checked = settings.captureGraphQL;
         document.getElementById('captureCustomSetting').checked = settings.captureCustom;
 
-        // Load patterns into array and render as tags
-        this.urlPatterns = settings.urlPatterns || [];
-        this.renderPatterns();
-
-        // Also populate advanced textarea
-        document.getElementById('urlPatternsSetting').value = this.urlPatterns.join(', ');
-
-        // Update debugger UI
-        this.debuggerEnabled = settings.useDebugger && settings.debuggerTabId;
-        this.updateDebuggerUI();
-
         // Initialize proxy UI
         this.updateProxyUI();
 
@@ -1183,23 +1217,11 @@ class AnalyticsLoggerUI {
   }
 
   async saveSettings() {
-    // Check if user manually edited the advanced textarea
-    const manualPatterns = document.getElementById('urlPatternsSetting').value
-      .split(',')
-      .map(s => s.trim())
-      .filter(s => s);
-
-    // Use manual patterns if different from rendered patterns, otherwise use array
-    const finalPatterns = (manualPatterns.join(',') !== this.urlPatterns.join(','))
-      ? manualPatterns
-      : this.urlPatterns;
-
     const settings = {
       enabled: document.getElementById('enabledSetting').checked,
       persistEvents: document.getElementById('persistSetting').checked,
       maxEvents: parseInt(document.getElementById('maxEventsSetting').value),
       // useProxy is now controlled by Start/Stop Proxy buttons - don't override it here
-      urlPatterns: finalPatterns,
       captureSegment: document.getElementById('captureSegmentSetting').checked,
       captureGA: document.getElementById('captureGASetting').checked,
       captureGraphQL: document.getElementById('captureGraphQLSetting').checked,
@@ -1221,6 +1243,27 @@ class AnalyticsLoggerUI {
       console.error('[Panel] Error saving settings:', err);
       alert('Error saving settings. Please try again.');
     }
+  }
+
+  /**
+   * Show a temporary "Copied!" popup at the specified coordinates
+   */
+  showCopiedPopup(x, y) {
+    const popup = document.createElement('div');
+    popup.className = 'copied-popup';
+    popup.textContent = 'Copied!';
+    popup.style.left = `${x}px`;
+    popup.style.top = `${y}px`;
+
+    document.body.appendChild(popup);
+
+    // Remove after animation
+    setTimeout(() => {
+      popup.classList.add('fading-out');
+      setTimeout(() => {
+        document.body.removeChild(popup);
+      }, 300);
+    }, 1000);
   }
 }
 

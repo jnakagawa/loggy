@@ -83,14 +83,41 @@ function parseEventFromSource(source, data, fullUrl) {
   }
   // Generic parser using field mappings
   else {
-    const extracted = source.extractFields(data);
-    if (extracted.eventName) {
+    // Check if data has an events array (common pattern)
+    const eventArray = data.events || data.batch || (Array.isArray(data) ? data : null);
+
+    if (eventArray && Array.isArray(eventArray)) {
+      // Process each event in the array
+      eventArray.forEach(item => {
+        const eventName = item.event || item.code || item.action || item.name || item.type || 'unknown';
+        events.push({
+          id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+          timestamp: item.timestamp || item.client_ts || item.sentAt || new Date().toISOString(),
+          event: eventName,
+          properties: item,
+          userId: item.userId || item.user_id || data.userId,
+          _source: source.id,
+          _sourceName: source.name,
+          _sourceIcon: source.icon,
+          _sourceColor: source.color,
+          _metadata: {
+            url: fullUrl,
+            capturedAt: new Date().toISOString(),
+            parser: source.parser
+          }
+        });
+      });
+    } else {
+      // Single event - try to extract or use whole payload
+      const extracted = source.extractFields(data);
+      const eventName = extracted.eventName || data.event || data.code || data.action || data.name || data.type || 'unknown';
+
       events.push({
         id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-        timestamp: extracted.timestamp || new Date().toISOString(),
-        event: extracted.eventName,
+        timestamp: extracted.timestamp || data.timestamp || new Date().toISOString(),
+        event: eventName,
         properties: extracted.properties || data,
-        userId: extracted.userId,
+        userId: extracted.userId || data.userId || data.user_id,
         _source: source.id,
         _sourceName: source.name,
         _sourceIcon: source.icon,
@@ -175,7 +202,7 @@ proxy.listen({
 const apiServer = http.createServer((req, res) => {
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
@@ -194,6 +221,43 @@ const apiServer = http.createServer((req, res) => {
     capturedEvents.length = 0;
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true }));
+  } else if (req.url === '/sources' && req.method === 'POST') {
+    // Receive sources from the extension
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', () => {
+      try {
+        const sources = JSON.parse(body);
+        let added = 0;
+
+        // Add/update sources from extension
+        sources.forEach(sourceData => {
+          const source = new (require('./config/config-manager-node.js').SourceConfig)(
+            sourceData.id,
+            sourceData
+          );
+          configManager.sources.set(sourceData.id, source);
+          added++;
+        });
+
+        console.log(`[MITM Proxy] ✅ Synced ${added} sources from extension`);
+        console.log(`[MITM Proxy] Total sources: ${configManager.getAllSources().length}`);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, synced: added }));
+      } catch (err) {
+        console.error('[MITM Proxy] Error syncing sources:', err.message);
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+  } else if (req.url === '/sources' && req.method === 'GET') {
+    // Return current sources
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      sources: configManager.getAllSources().map(s => s.toJSON()),
+      count: configManager.getAllSources().length
+    }));
   } else {
     res.writeHead(404);
     res.end();

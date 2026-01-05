@@ -347,6 +347,9 @@ export class SourceManager {
         console.log('[SourceManager] Source saved:', sourceData.id);
         this.closeSourceEditor();
         await this.loadSources();
+
+        // Sync sources to proxy if running
+        this.syncSourcesToProxy();
       } else {
         alert('Failed to save source: ' + (response.error || 'Unknown error'));
       }
@@ -373,6 +376,9 @@ export class SourceManager {
         console.log('[SourceManager] Source deleted:', this.editingSourceId);
         this.closeSourceEditor();
         await this.loadSources();
+
+        // Sync sources to proxy if running
+        this.syncSourcesToProxy();
       } else {
         alert('Failed to delete source');
       }
@@ -468,6 +474,9 @@ export class SourceManager {
         if (response.success) {
           alert(`✅ Successfully imported ${response.count} source(s)`);
           await this.loadSources();
+
+          // Sync sources to proxy if running
+          this.syncSourcesToProxy();
         } else {
           alert('Failed to import sources: ' + (response.error || 'Unknown error'));
         }
@@ -478,5 +487,32 @@ export class SourceManager {
     });
 
     input.click();
+  }
+
+  async syncSourcesToProxy() {
+    try {
+      // Get all sources from the extension
+      const response = await chrome.runtime.sendMessage({ action: 'getSources' });
+
+      if (!response.success) {
+        console.error('[SourceManager] Failed to get sources for sync');
+        return;
+      }
+
+      // Send sources to proxy
+      const syncResponse = await fetch('http://localhost:8889/sources', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(response.sources)
+      });
+
+      if (syncResponse.ok) {
+        const result = await syncResponse.json();
+        console.log(`[SourceManager] ✅ Synced ${result.synced} sources to proxy`);
+      }
+    } catch (err) {
+      // Silently fail if proxy not running
+      console.log('[SourceManager] Could not sync sources to proxy:', err.message);
+    }
   }
 }
