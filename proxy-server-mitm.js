@@ -95,27 +95,55 @@ function parseEventFromSource(source, data, fullUrl) {
 
 /**
  * Extract a single event from data
+ * Handles nested event structures (envelope patterns like Airbnb's Jitney)
  */
 function extractEvent(item, fieldMappings, parentData, source, fullUrl) {
   if (!item || typeof item !== 'object') return null;
 
-  // Extract fields using mappings or auto-detection
-  const eventName = extractField(item, 'eventName', fieldMappings) || 'unknown';
-  const timestamp = normalizeTimestamp(extractField(item, 'timestamp', fieldMappings));
+  // Check for nested event_data structure (envelope pattern)
+  // Many analytics systems wrap events: { event_name: "envelope", event_data: { event_name: "actual", ... } }
+  const eventData = item.event_data && typeof item.event_data === 'object' ? item.event_data : null;
+
+  // Extract event name - prefer inner event_data.event_name over outer
+  let eventName = 'unknown';
+  if (eventData) {
+    eventName = extractField(eventData, 'eventName', fieldMappings) ||
+                extractField(item, 'eventName', fieldMappings) || 'unknown';
+  } else {
+    eventName = extractField(item, 'eventName', fieldMappings) || 'unknown';
+  }
+
+  // Extract timestamp - check both levels and nested context
+  const timestamp = normalizeTimestamp(
+    extractField(eventData || item, 'timestamp', fieldMappings) ||
+    (eventData?.context?.timestamp) ||
+    (item.context?.timestamp)
+  );
+
+  // Extract userId - check nested context
   const userId = extractField(item, 'userId', fieldMappings) ||
+                 extractField(eventData || {}, 'userId', fieldMappings) ||
+                 (eventData?.context?.user_id) ||
+                 (item.context?.user_id) ||
                  (parentData ? extractField(parentData, 'userId', fieldMappings) : null);
 
-  // Get properties
-  const properties = extractProperties(item);
+  // Get properties - merge from both levels if nested
+  let properties = extractProperties(item);
+  if (eventData) {
+    properties = { ...properties, ...extractProperties(eventData) };
+  }
+
+  // Extract context from nested structure
+  const context = eventData?.context || item.context || parentData?.context || {};
 
   return {
     id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
     timestamp: timestamp,
     event: eventName,
     properties: properties,
-    context: item.context || parentData?.context || {},
+    context: context,
     userId: userId,
-    anonymousId: item.anonymousId || parentData?.anonymousId,
+    anonymousId: item.anonymousId || eventData?.anonymousId || parentData?.anonymousId,
     type: item.type || 'track',
     _source: source.id,
     _sourceName: source.name,
