@@ -97,6 +97,7 @@ export class AnalyticsParser {
 
   /**
    * Extract a single event from data
+   * Handles nested event structures (envelope patterns like Airbnb's Jitney)
    * @param {object} item - Event data
    * @param {object} fieldMappings - Optional field overrides
    * @param {object} parentData - Parent data for context extraction
@@ -106,18 +107,47 @@ export class AnalyticsParser {
       return null;
     }
 
-    // Extract fields using mappings (overrides) or auto-detection
-    const eventName = this.extractField(item, 'eventName', fieldMappings);
-    const timestamp = this.extractField(item, 'timestamp', fieldMappings) || new Date().toISOString();
+    // Check for nested event_data structure (envelope pattern)
+    // Many analytics systems wrap events: { event_name: "envelope", event_data: { event_name: "actual", ... } }
+    const eventData = item.event_data && typeof item.event_data === 'object' ? item.event_data : null;
+
+    // Extract event name - prefer inner event_data.event_name over outer
+    let eventName;
+    if (eventData) {
+      eventName = this.extractField(eventData, 'eventName', fieldMappings) ||
+                  this.extractField(item, 'eventName', fieldMappings);
+    } else {
+      eventName = this.extractField(item, 'eventName', fieldMappings);
+    }
+
+    // Extract timestamp - check both levels and nested context
+    const timestamp = this.extractField(eventData || item, 'timestamp', fieldMappings) ||
+                      eventData?.context?.timestamp ||
+                      item.context?.timestamp ||
+                      new Date().toISOString();
+
+    // Extract userId - check nested context
     const userId = this.extractField(item, 'userId', fieldMappings) ||
+                   this.extractField(eventData || {}, 'userId', fieldMappings) ||
+                   eventData?.context?.user_id ||
+                   item.context?.user_id ||
                    (parentData ? this.extractField(parentData, 'userId', fieldMappings) : null);
 
-    // Get properties - either from a nested properties field or the item itself
-    const propertiesField = this.findField(item, this.FIELD_DETECTION.properties);
-    const properties = propertiesField ? item[propertiesField] : this.extractProperties(item);
+    // Get properties - merge from both levels if nested
+    let properties;
+    if (eventData) {
+      // For nested events, merge properties from both levels
+      const outerProps = this.extractProperties(item);
+      const innerProps = this.extractProperties(eventData);
+      properties = { ...outerProps, ...innerProps };
+    } else {
+      // Get properties - either from a nested properties field or the item itself
+      const propertiesField = this.findField(item, this.FIELD_DETECTION.properties);
+      properties = propertiesField ? item[propertiesField] : this.extractProperties(item);
+    }
 
-    // Extract context if present (common in Segment-style events)
-    const context = item.context || parentData?.context || {};
+    // Extract context from nested structure
+    const context = eventData?.context || item.context || parentData?.context || {};
 
     return {
       id: this.generateId(),
@@ -126,7 +156,7 @@ export class AnalyticsParser {
       properties: properties,
       context: context,
       userId: userId,
-      anonymousId: item.anonymousId || parentData?.anonymousId,
+      anonymousId: item.anonymousId || eventData?.anonymousId || parentData?.anonymousId,
       type: item.type || 'track'
     };
   }

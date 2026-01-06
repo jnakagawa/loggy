@@ -68,7 +68,7 @@ async function initialize() {
 // Proxy Mode - Poll local proxy server for captured events
 let proxyPollingInterval = null;
 const PROXY_URL = 'http://localhost:8889/events';
-const PROXY_POLL_INTERVAL = 2000; // 2 seconds
+const PROXY_POLL_INTERVAL = 5000; // 5 seconds
 
 function startProxyPolling() {
   if (proxyPollingInterval) return;
@@ -80,6 +80,11 @@ function startProxyPolling() {
   let pollCount = 0;
 
   proxyPollingInterval = setInterval(async () => {
+    // Only poll if there's at least one panel connected
+    if (connectedPanels.size === 0) {
+      return;
+    }
+
     pollCount++;
 
     try {
@@ -150,6 +155,11 @@ chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
     // Skip if disabled
     if (!settings.enabled) {
+      return;
+    }
+
+    // Skip if proxy mode is enabled (proxy handles capture)
+    if (settings.useProxy) {
       return;
     }
 

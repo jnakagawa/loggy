@@ -5,10 +5,11 @@
  * and captures analytics events using domain-based matching and smart parsing.
  */
 
-const MitmProxy = require('http-mitm-proxy').Proxy;
-const http = require('http');
-const zlib = require('zlib');
-const { ConfigManagerNode, SourceConfig, looksLikeAnalyticsEndpoint } = require('./config/config-manager-node.js');
+import { Proxy as MitmProxy } from 'http-mitm-proxy';
+import http from 'http';
+import zlib from 'zlib';
+import { AnalyticsParser } from './parsers.js';
+import { ConfigManagerNode, SourceConfig, looksLikeAnalyticsEndpoint } from './config/config-manager-node.js';
 
 /**
  * Decompress body if needed based on Content-Encoding
@@ -50,101 +51,16 @@ proxy.onError((ctx, err) => {
   console.error('[MITM Proxy] Error:', err.message);
 });
 
-// Field detection order (same as parsers.js)
-const FIELD_DETECTION = {
-  eventName: ['event', 'eventName', 'event_name', 'code', 'action', 'name', 'type', 'eventType'],
-  timestamp: ['timestamp', 'client_ts', 'client_timestamp', 'time', 'ts', 'sentAt', 'sent_at', 'created_at'],
-  userId: ['userId', 'user_id', 'uid', 'anonymousId', 'anonymous_id', 'anonId']
-};
-
-const EVENT_ARRAY_FIELDS = ['batch', 'events', 'data', 'items', 'records'];
-
 /**
- * Smart parsing function - auto-detects event structure
+ * Parse events using shared AnalyticsParser and enrich with source metadata
  */
 function parseEventFromSource(source, data, fullUrl) {
-  const events = [];
-  const fieldMappings = source.fieldMappings || {};
+  // Use shared AnalyticsParser for parsing
+  const events = AnalyticsParser.parsePayload(data, source.fieldMappings || {});
 
-  // Find events array
-  let eventArray = null;
-  for (const field of EVENT_ARRAY_FIELDS) {
-    if (data[field] && Array.isArray(data[field])) {
-      eventArray = data[field];
-      break;
-    }
-  }
-  if (!eventArray && Array.isArray(data)) {
-    eventArray = data;
-  }
-
-  if (eventArray) {
-    // Process each event in the array
-    eventArray.forEach(item => {
-      const event = extractEvent(item, fieldMappings, data, source, fullUrl);
-      if (event) events.push(event);
-    });
-  } else {
-    // Single event
-    const event = extractEvent(data, fieldMappings, null, source, fullUrl);
-    if (event) events.push(event);
-  }
-
-  return events;
-}
-
-/**
- * Extract a single event from data
- * Handles nested event structures (envelope patterns like Airbnb's Jitney)
- */
-function extractEvent(item, fieldMappings, parentData, source, fullUrl) {
-  if (!item || typeof item !== 'object') return null;
-
-  // Check for nested event_data structure (envelope pattern)
-  // Many analytics systems wrap events: { event_name: "envelope", event_data: { event_name: "actual", ... } }
-  const eventData = item.event_data && typeof item.event_data === 'object' ? item.event_data : null;
-
-  // Extract event name - prefer inner event_data.event_name over outer
-  let eventName = 'unknown';
-  if (eventData) {
-    eventName = extractField(eventData, 'eventName', fieldMappings) ||
-                extractField(item, 'eventName', fieldMappings) || 'unknown';
-  } else {
-    eventName = extractField(item, 'eventName', fieldMappings) || 'unknown';
-  }
-
-  // Extract timestamp - check both levels and nested context
-  const timestamp = normalizeTimestamp(
-    extractField(eventData || item, 'timestamp', fieldMappings) ||
-    (eventData?.context?.timestamp) ||
-    (item.context?.timestamp)
-  );
-
-  // Extract userId - check nested context
-  const userId = extractField(item, 'userId', fieldMappings) ||
-                 extractField(eventData || {}, 'userId', fieldMappings) ||
-                 (eventData?.context?.user_id) ||
-                 (item.context?.user_id) ||
-                 (parentData ? extractField(parentData, 'userId', fieldMappings) : null);
-
-  // Get properties - merge from both levels if nested
-  let properties = extractProperties(item);
-  if (eventData) {
-    properties = { ...properties, ...extractProperties(eventData) };
-  }
-
-  // Extract context from nested structure
-  const context = eventData?.context || item.context || parentData?.context || {};
-
-  return {
-    id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-    timestamp: timestamp,
-    event: eventName,
-    properties: properties,
-    context: context,
-    userId: userId,
-    anonymousId: item.anonymousId || eventData?.anonymousId || parentData?.anonymousId,
-    type: item.type || 'track',
+  // Enrich events with source metadata
+  return events.map(event => ({
+    ...event,
     _source: source.id,
     _sourceName: source.name,
     _sourceIcon: source.icon,
@@ -153,85 +69,7 @@ function extractEvent(item, fieldMappings, parentData, source, fullUrl) {
       url: fullUrl,
       capturedAt: new Date().toISOString()
     }
-  };
-}
-
-/**
- * Extract a field using mapping override or auto-detection
- */
-function extractField(data, fieldType, fieldMappings) {
-  // Check for override mapping first
-  if (fieldMappings[fieldType]) {
-    const mappedField = fieldMappings[fieldType];
-    const value = getNestedValue(data, mappedField);
-    if (value !== undefined) return value;
-  }
-
-  // Fall back to auto-detection
-  const detectionFields = FIELD_DETECTION[fieldType] || [];
-  for (const field of detectionFields) {
-    const value = getNestedValue(data, field);
-    if (value !== undefined && value !== null) return value;
-  }
-
-  return null;
-}
-
-/**
- * Get nested value from object
- */
-function getNestedValue(data, path) {
-  if (!path || !data) return undefined;
-  const parts = path.split('.');
-  let current = data;
-  for (const part of parts) {
-    if (current === null || current === undefined || typeof current !== 'object') {
-      return undefined;
-    }
-    current = current[part];
-  }
-  return current;
-}
-
-/**
- * Normalize timestamp to ISO string
- */
-function normalizeTimestamp(timestamp) {
-  if (!timestamp) return new Date().toISOString();
-
-  if (typeof timestamp === 'string' && timestamp.includes('T')) {
-    return timestamp;
-  }
-
-  if (typeof timestamp === 'number') {
-    const ms = timestamp < 10000000000 ? timestamp * 1000 : timestamp;
-    return new Date(ms).toISOString();
-  }
-
-  try {
-    return new Date(timestamp).toISOString();
-  } catch {
-    return new Date().toISOString();
-  }
-}
-
-/**
- * Extract properties from object
- */
-function extractProperties(obj) {
-  const excludeKeys = [
-    'id', 'timestamp', 'time', 'ts', 'sentAt', 'sent_at', 'created_at',
-    'userId', 'user_id', 'anonymousId', 'anonymous_id',
-    'context', '_metadata', '_parser', '_source'
-  ];
-
-  const props = {};
-  for (const [key, value] of Object.entries(obj)) {
-    if (!excludeKeys.includes(key)) {
-      props[key] = value;
-    }
-  }
-  return props;
+  }));
 }
 
 // Intercept HTTPS requests

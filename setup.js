@@ -49,24 +49,24 @@ async function runInstaller() {
 {
   "name": "com.analytics_logger.proxy",
   "description": "Analytics Logger Proxy Control",
-  "path": "${extensionPath}/native-host/proxy-host.js",
+  "path": "${extensionPath}/native-host/proxy-host.cjs",
   "type": "stdio",
   "allowed_origins": ["chrome-extension://${extensionId}/"]
 }
 EOF
-chmod +x "${extensionPath}/native-host/proxy-host.js" && echo "Done! Reload the extension."`;
+chmod +x "${extensionPath}/native-host/proxy-host.cjs" && echo "Done! Reload the extension."`;
     } else {
         // UNPACKED/DEVELOPMENT - User needs to cd to project folder first
         command = `mkdir -p "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts" && cat > "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.analytics_logger.proxy.json" << EOF
 {
   "name": "com.analytics_logger.proxy",
   "description": "Analytics Logger Proxy Control",
-  "path": "$(pwd)/native-host/proxy-host.js",
+  "path": "$(pwd)/native-host/proxy-host.cjs",
   "type": "stdio",
   "allowed_origins": ["chrome-extension://${extensionId}/"]
 }
 EOF
-chmod +x native-host/proxy-host.js && echo "Done! Reload the extension."`;
+chmod +x native-host/proxy-host.cjs && echo "Done! Reload the extension."`;
 
         extraInstructions = `<p style="color: #e65100; font-size: 13px; margin-bottom: 12px;">
             <strong>First:</strong> In Terminal, navigate to your Loggy project folder:<br>

@@ -1,9 +1,10 @@
 {
   "name": "extension-analytics-logger",
   "version": "1.0.0",
+  "type": "module",
   "description": "Chrome extension for capturing analytics events",
   "scripts": {
-    "proxy": "node proxy-server.js",
+    "proxy": "node proxy-server-mitm.js",
     "chrome": "open -na 'Google Chrome' --args --proxy-server='localhost:8888' --user-data-dir='/tmp/chrome-analytics-proxy'",
     "start": "npm run proxy"
   },

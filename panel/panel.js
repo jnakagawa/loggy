@@ -544,7 +544,7 @@ class AnalyticsLoggerUI {
         if (this.sourceManager) {
           this.sourceManager.loadPendingSources();
         }
-        this.updatePendingIndicator();
+        this.checkForSuggestions();
       }
     });
 
