@@ -1,6 +1,6 @@
 /**
  * Source Manager UI
- * Handles source configuration UI, editing, and management
+ * Handles source configuration UI with domain-based matching
  */
 
 export class SourceManager {
@@ -8,6 +8,9 @@ export class SourceManager {
     this.sources = [];
     this.currentSource = null;
     this.editingSourceId = null;
+    this.samplePayload = null;  // Sample payload for field detection
+    this.availableFields = [];  // Flattened fields from sample payload
+    this.activeFieldPicker = null;  // Currently open field picker
     this.init();
   }
 
@@ -19,6 +22,10 @@ export class SourceManager {
       // Tabs
       tabBtns: document.querySelectorAll('.tab-btn'),
       tabContents: document.querySelectorAll('.tab-content'),
+
+      // Pending sources section
+      pendingSourcesSection: document.getElementById('pendingSourcesSection'),
+      pendingSourcesList: document.getElementById('pendingSourcesList'),
 
       // Sources tab
       sourcesList: document.getElementById('sourcesList'),
@@ -33,19 +40,21 @@ export class SourceManager {
       saveSourceBtn: document.getElementById('saveSourceBtn'),
       cancelSourceBtn: document.getElementById('cancelSourceBtn'),
       deleteSourceBtn: document.getElementById('deleteSourceBtn'),
-      testSourceBtn: document.getElementById('testSourceBtn'),
 
       // Source editor fields
       sourceName: document.getElementById('sourceName'),
-      sourceIcon: document.getElementById('sourceIcon'),
+      sourceDomain: document.getElementById('sourceDomain'),
       sourceColor: document.getElementById('sourceColor'),
       sourceEnabled: document.getElementById('sourceEnabled'),
-      sourceParser: document.getElementById('sourceParser'),
-      urlPatternsList: document.getElementById('urlPatternsList'),
-      addPatternBtn: document.getElementById('addPatternBtn'),
       fieldEventName: document.getElementById('fieldEventName'),
       fieldTimestamp: document.getElementById('fieldTimestamp'),
       fieldUserId: document.getElementById('fieldUserId'),
+
+      // Field pickers
+      fieldPickerEventName: document.getElementById('fieldPickerEventName'),
+      fieldPickerTimestamp: document.getElementById('fieldPickerTimestamp'),
+      fieldPickerUserId: document.getElementById('fieldPickerUserId'),
+      fieldOptionsDropdown: document.getElementById('fieldOptionsDropdown'),
 
       // Stats
       sourceStats: document.getElementById('sourceStats'),
@@ -75,13 +84,32 @@ export class SourceManager {
     this.elements.cancelSourceBtn?.addEventListener('click', () => this.closeSourceEditor());
     this.elements.saveSourceBtn?.addEventListener('click', () => this.saveSource());
     this.elements.deleteSourceBtn?.addEventListener('click', () => this.deleteSource());
-    this.elements.testSourceBtn?.addEventListener('click', () => this.testSource());
-    this.elements.addPatternBtn?.addEventListener('click', () => this.addPattern());
 
     // Close modal on background click
     this.elements.sourceEditorModal?.addEventListener('click', (e) => {
       if (e.target === this.elements.sourceEditorModal) {
         this.closeSourceEditor();
+      }
+    });
+
+    // Field picker click handlers
+    this.elements.fieldPickerEventName?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggleFieldPicker('eventName', this.elements.fieldPickerEventName);
+    });
+    this.elements.fieldPickerTimestamp?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggleFieldPicker('timestamp', this.elements.fieldPickerTimestamp);
+    });
+    this.elements.fieldPickerUserId?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggleFieldPicker('userId', this.elements.fieldPickerUserId);
+    });
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+      if (this.activeFieldPicker && !e.target.closest('.field-options-dropdown')) {
+        this.closeFieldPicker();
       }
     });
   }
@@ -122,6 +150,105 @@ export class SourceManager {
       }
     } catch (err) {
       console.error('[SourceManager] Error loading sources:', err);
+    }
+
+    // Also load pending sources
+    await this.loadPendingSources();
+  }
+
+  async loadPendingSources() {
+    try {
+      const response = await chrome.runtime.sendMessage({ action: 'getUnmatchedDomains' });
+
+      if (response.success && response.domains.length > 0) {
+        this.renderPendingSources(response.domains);
+      } else {
+        this.hidePendingSources();
+      }
+    } catch (err) {
+      console.error('[SourceManager] Error loading pending sources:', err);
+      this.hidePendingSources();
+    }
+  }
+
+  renderPendingSources(pendingSources) {
+    if (!this.elements.pendingSourcesSection || !this.elements.pendingSourcesList) return;
+
+    const html = pendingSources.map(pending => this.renderPendingCard(pending)).join('');
+    this.elements.pendingSourcesList.innerHTML = html;
+    this.elements.pendingSourcesSection.style.display = 'block';
+
+    // Add click listeners to pending source buttons
+    this.elements.pendingSourcesList.querySelectorAll('.pending-add-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const domain = btn.closest('.pending-source-card').dataset.domain;
+        this.openSourceEditorForDomain(domain);
+      });
+    });
+
+    this.elements.pendingSourcesList.querySelectorAll('.pending-dismiss-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const domain = btn.closest('.pending-source-card').dataset.domain;
+        await this.dismissPendingSource(domain);
+      });
+    });
+  }
+
+  hidePendingSources() {
+    if (this.elements.pendingSourcesSection) {
+      this.elements.pendingSourcesSection.style.display = 'none';
+    }
+  }
+
+  renderPendingCard(pending) {
+    let pathSnippet = '';
+    try {
+      pathSnippet = new URL(pending.url).pathname;
+      if (pathSnippet.length > 25) {
+        pathSnippet = pathSnippet.slice(0, 25) + '...';
+      }
+    } catch (e) {
+      pathSnippet = '/...';
+    }
+
+    const timeAgo = this.formatTimeAgo(pending.firstSeen);
+
+    return `
+      <div class="pending-source-card" data-domain="${pending.domain}">
+        <div class="pending-color-dot"></div>
+        <div class="pending-info">
+          <div class="pending-domain">${pending.domain}</div>
+          <div class="pending-meta">${pathSnippet} • ${pending.count} event${pending.count !== 1 ? 's' : ''} • ${timeAgo}</div>
+        </div>
+        <button class="btn btn-primary btn-small pending-add-btn">Add</button>
+        <button class="pending-dismiss-btn" title="Dismiss">×</button>
+      </div>
+    `;
+  }
+
+  formatTimeAgo(timestamp) {
+    const seconds = Math.floor((Date.now() - timestamp) / 1000);
+    if (seconds < 60) return 'just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  }
+
+  async dismissPendingSource(domain) {
+    try {
+      await chrome.runtime.sendMessage({
+        action: 'clearUnmatchedDomain',
+        domain: domain
+      });
+      // Reload pending sources
+      await this.loadPendingSources();
+    } catch (err) {
+      console.error('[SourceManager] Error dismissing pending source:', err);
     }
   }
 
@@ -167,7 +294,10 @@ export class SourceManager {
 
     // Add click listeners to source cards
     document.querySelectorAll('.source-card').forEach(card => {
-      card.addEventListener('click', () => {
+      card.addEventListener('click', (e) => {
+        // Don't open editor if clicking delete button
+        if (e.target.closest('.source-delete-btn')) return;
+
         const sourceId = card.dataset.sourceId;
         const source = this.sources.find(s => s.id === sourceId);
         if (source) {
@@ -175,6 +305,51 @@ export class SourceManager {
         }
       });
     });
+
+    // Add click listeners to delete buttons
+    document.querySelectorAll('.source-delete-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const sourceId = btn.dataset.sourceId;
+        const source = this.sources.find(s => s.id === sourceId);
+        if (source && confirm(`Delete "${source.name}"?`)) {
+          await this.deleteSourceById(sourceId);
+        }
+      });
+    });
+
+    // Add click listeners to toggle switches
+    document.querySelectorAll('.source-toggle-switch').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const sourceId = btn.dataset.sourceId;
+        await this.toggleSourceEnabled(sourceId);
+      });
+    });
+  }
+
+  /**
+   * Toggle a source's enabled state
+   */
+  async toggleSourceEnabled(sourceId) {
+    const source = this.sources.find(s => s.id === sourceId);
+    if (!source) return;
+
+    const newEnabled = !source.enabled;
+
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: 'updateSource',
+        source: { ...source, enabled: newEnabled }
+      });
+
+      if (response.success) {
+        console.log('[SourceManager] Toggled source:', sourceId, 'enabled:', newEnabled);
+        await this.loadSources();
+      }
+    } catch (err) {
+      console.error('[SourceManager] Error toggling source:', err);
+    }
   }
 
   renderSourceCard(source) {
@@ -186,26 +361,26 @@ export class SourceManager {
 
     return `
       <div class="source-card ${!isEnabled ? 'disabled' : ''}" data-source-id="${source.id}">
-        <div class="source-icon" style="background-color: ${source.color}20; color: ${source.color};">
-          ${source.icon}
-        </div>
+        <button class="source-toggle-switch ${isEnabled ? 'enabled' : ''}" data-source-id="${source.id}" title="Click to ${isEnabled ? 'disable' : 'enable'}">
+          <span class="toggle-knob"></span>
+        </button>
+        <div class="source-color-dot" style="background-color: ${source.color};"></div>
         <div class="source-info">
           <div class="source-name">${source.name}</div>
           <div class="source-meta">
             <span class="source-badge ${source.createdBy}">${source.createdBy}</span>
-            <span>${source.parser}</span>
-            <span>${source.urlPatterns.length} pattern${source.urlPatterns.length !== 1 ? 's' : ''}</span>
-            <span style="color: ${isEnabled ? '#4caf50' : '#999'}">${isEnabled ? '✓ Enabled' : '✗ Disabled'}</span>
+            <span class="source-domain">${source.domain || 'No domain'}</span>
           </div>
           <div class="source-stats">
-            ${eventsCount.toLocaleString()} events captured • Last: ${lastCaptured}
+            ${eventsCount.toLocaleString()} events captured
           </div>
         </div>
+        <button class="source-delete-btn" data-source-id="${source.id}" title="Delete source">×</button>
       </div>
     `;
   }
 
-  openSourceEditor(source = null) {
+  async openSourceEditor(source = null) {
     this.editingSourceId = source ? source.id : null;
     this.currentSource = source;
 
@@ -213,18 +388,26 @@ export class SourceManager {
       // Editing existing source
       this.elements.sourceEditorTitle.textContent = `Edit Source: ${source.name}`;
       this.elements.sourceName.value = source.name;
-      this.elements.sourceIcon.value = source.icon;
+      this.elements.sourceDomain.value = source.domain || '';
       this.elements.sourceColor.value = source.color;
       this.elements.sourceEnabled.checked = source.enabled;
-      this.elements.sourceParser.value = source.parser;
 
-      // Field mappings
-      this.elements.fieldEventName.value = source.fieldMappings?.eventName?.join(', ') || '';
-      this.elements.fieldTimestamp.value = source.fieldMappings?.timestamp?.join(', ') || '';
-      this.elements.fieldUserId.value = source.fieldMappings?.userId?.join(', ') || '';
+      // Try to get a sample event from the buffer for this source
+      await this.loadSampleEventForSource(source.id);
 
-      // URL patterns
-      this.renderPatterns(source.urlPatterns || []);
+      // Set field mappings if they exist (after loading sample so picker shows value)
+      if (source.fieldMappings?.eventName) {
+        this.elements.fieldEventName.value = source.fieldMappings.eventName;
+        this.updateFieldPickerDisplay('eventName', source.fieldMappings.eventName);
+      }
+      if (source.fieldMappings?.timestamp) {
+        this.elements.fieldTimestamp.value = source.fieldMappings.timestamp;
+        this.updateFieldPickerDisplay('timestamp', source.fieldMappings.timestamp);
+      }
+      if (source.fieldMappings?.userId) {
+        this.elements.fieldUserId.value = source.fieldMappings.userId;
+        this.updateFieldPickerDisplay('userId', source.fieldMappings.userId);
+      }
 
       // Show stats
       this.elements.sourceStats.style.display = 'block';
@@ -239,16 +422,87 @@ export class SourceManager {
       // Creating new source
       this.elements.sourceEditorTitle.textContent = 'Add New Source';
       this.elements.sourceName.value = '';
-      this.elements.sourceIcon.value = '📊';
+      this.elements.sourceDomain.value = '';
       this.elements.sourceColor.value = '#6366F1';
       this.elements.sourceEnabled.checked = true;
-      this.elements.sourceParser.value = 'generic';
-      this.elements.fieldEventName.value = 'event, eventName, event_name, action';
-      this.elements.fieldTimestamp.value = 'timestamp, time, ts';
-      this.elements.fieldUserId.value = 'user_id, userId, uid';
-      this.renderPatterns([]);
+      this.resetFieldPickers();
       this.elements.sourceStats.style.display = 'none';
       this.elements.deleteSourceBtn.style.display = 'none';
+    }
+
+    this.elements.sourceEditorModal.style.display = 'flex';
+  }
+
+  /**
+   * Load a sample event from the buffer to populate field pickers
+   */
+  async loadSampleEventForSource(sourceId) {
+    try {
+      const response = await chrome.runtime.sendMessage({ action: 'getAllEvents' });
+      if (response.success && response.events.length > 0) {
+        // Find an event from this source
+        const sampleEvent = response.events.find(e => e._source === sourceId);
+        if (sampleEvent) {
+          // Use the event's properties as the sample payload
+          // Combine properties with other relevant fields
+          const samplePayload = {
+            ...sampleEvent.properties,
+            event: sampleEvent.event,
+            timestamp: sampleEvent.timestamp,
+            userId: sampleEvent.userId,
+            anonymousId: sampleEvent.anonymousId,
+            type: sampleEvent.type,
+            context: sampleEvent.context
+          };
+          console.log('[SourceManager] Found sample event for source:', sourceId, samplePayload);
+          this.initFieldPickers(samplePayload);
+          return;
+        }
+      }
+      // No events found for this source
+      console.log('[SourceManager] No events found for source:', sourceId);
+      this.resetFieldPickers();
+    } catch (err) {
+      console.error('[SourceManager] Error loading sample event:', err);
+      this.resetFieldPickers();
+    }
+  }
+
+  /**
+   * Open editor pre-filled with a domain (for suggestions flow)
+   */
+  async openSourceEditorForDomain(domain) {
+    this.editingSourceId = null;
+    this.currentSource = null;
+
+    this.elements.sourceEditorTitle.textContent = 'Add New Source';
+    this.elements.sourceName.value = this.humanizeDomain(domain);
+    this.elements.sourceDomain.value = domain;
+    this.elements.sourceColor.value = this.generateColor(domain);
+    this.elements.sourceEnabled.checked = true;
+    this.elements.sourceStats.style.display = 'none';
+    this.elements.deleteSourceBtn.style.display = 'none';
+
+    // Try to get sample payload from unmatched domains
+    try {
+      const response = await chrome.runtime.sendMessage({ action: 'getUnmatchedDomains' });
+      console.log('[SourceManager] Unmatched domains response:', response);
+      if (response.success) {
+        const pending = response.domains.find(d => d.domain === domain);
+        console.log('[SourceManager] Found pending for domain:', domain, pending);
+        if (pending?.payload) {
+          console.log('[SourceManager] Payload:', pending.payload);
+          this.initFieldPickers(pending.payload);
+        } else {
+          console.log('[SourceManager] No payload found');
+          this.resetFieldPickers();
+        }
+      } else {
+        this.resetFieldPickers();
+      }
+    } catch (err) {
+      console.error('[SourceManager] Error loading pending source payload:', err);
+      this.resetFieldPickers();
     }
 
     this.elements.sourceEditorModal.style.display = 'flex';
@@ -260,77 +514,32 @@ export class SourceManager {
     this.currentSource = null;
   }
 
-  renderPatterns(patterns) {
-    this.elements.urlPatternsList.innerHTML = '';
-
-    patterns.forEach((pattern, index) => {
-      this.addPatternToDOM(pattern.pattern, pattern.type, index);
-    });
-  }
-
-  addPattern() {
-    const patternsCount = this.elements.urlPatternsList.children.length;
-    this.addPatternToDOM('', 'contains', patternsCount);
-  }
-
-  addPatternToDOM(pattern, type, index) {
-    const patternItem = document.createElement('div');
-    patternItem.className = 'pattern-item';
-    patternItem.dataset.index = index;
-
-    patternItem.innerHTML = `
-      <input type="text" class="pattern-value" placeholder="e.g., reddit.com/events" value="${pattern}">
-      <select class="pattern-type">
-        <option value="contains" ${type === 'contains' ? 'selected' : ''}>Contains</option>
-        <option value="regex" ${type === 'regex' ? 'selected' : ''}>Regex</option>
-        <option value="exact" ${type === 'exact' ? 'selected' : ''}>Exact</option>
-      </select>
-      <button type="button" class="remove-pattern-btn">✕</button>
-    `;
-
-    const removeBtn = patternItem.querySelector('.remove-pattern-btn');
-    removeBtn.addEventListener('click', () => {
-      patternItem.remove();
-    });
-
-    this.elements.urlPatternsList.appendChild(patternItem);
-  }
-
   async saveSource() {
-    // Collect pattern data
-    const patterns = [];
-    this.elements.urlPatternsList.querySelectorAll('.pattern-item').forEach(item => {
-      const pattern = item.querySelector('.pattern-value').value.trim();
-      const type = item.querySelector('.pattern-type').value;
-      if (pattern) {
-        patterns.push({ pattern, type });
-      }
-    });
+    const domain = this.elements.sourceDomain.value.trim().toLowerCase();
 
-    if (patterns.length === 0) {
-      alert('Please add at least one URL pattern');
+    if (!domain) {
+      alert('Please enter a domain');
       return;
     }
 
-    // Parse field mappings
-    const parseFieldMapping = (value) => {
-      return value.split(',').map(v => v.trim()).filter(v => v);
-    };
+    // Build field mappings (only include non-empty overrides)
+    const fieldMappings = {};
+    const eventName = this.elements.fieldEventName.value.trim();
+    const timestamp = this.elements.fieldTimestamp.value.trim();
+    const userId = this.elements.fieldUserId.value.trim();
+
+    if (eventName) fieldMappings.eventName = eventName;
+    if (timestamp) fieldMappings.timestamp = timestamp;
+    if (userId) fieldMappings.userId = userId;
 
     const sourceData = {
-      id: this.editingSourceId || this.elements.sourceName.value.toLowerCase().replace(/\s+/g, '-'),
-      name: this.elements.sourceName.value,
-      icon: this.elements.sourceIcon.value || '📊',
+      id: this.editingSourceId || domain.replace(/\./g, '-'),
+      name: this.elements.sourceName.value || this.humanizeDomain(domain),
+      icon: this.currentSource?.icon || '📊',
       color: this.elements.sourceColor.value,
       enabled: this.elements.sourceEnabled.checked,
-      parser: this.elements.sourceParser.value,
-      urlPatterns: patterns,
-      fieldMappings: {
-        eventName: parseFieldMapping(this.elements.fieldEventName.value),
-        timestamp: parseFieldMapping(this.elements.fieldTimestamp.value),
-        userId: parseFieldMapping(this.elements.fieldUserId.value),
-        properties: 'all'
-      },
+      domain: domain,
+      fieldMappings: fieldMappings,
       createdBy: this.currentSource?.createdBy || 'user',
       createdAt: this.currentSource?.createdAt || new Date().toISOString(),
       stats: this.currentSource?.stats || { eventsCapture: 0, lastCaptured: null }
@@ -366,15 +575,19 @@ export class SourceManager {
       return;
     }
 
+    await this.deleteSourceById(this.editingSourceId);
+    this.closeSourceEditor();
+  }
+
+  async deleteSourceById(sourceId) {
     try {
       const response = await chrome.runtime.sendMessage({
         action: 'removeSource',
-        id: this.editingSourceId
+        id: sourceId
       });
 
       if (response.success) {
-        console.log('[SourceManager] Source deleted:', this.editingSourceId);
-        this.closeSourceEditor();
+        console.log('[SourceManager] Source deleted:', sourceId);
         await this.loadSources();
 
         // Sync sources to proxy if running
@@ -385,52 +598,6 @@ export class SourceManager {
     } catch (err) {
       console.error('[SourceManager] Error deleting source:', err);
       alert('Failed to delete source: ' + err.message);
-    }
-  }
-
-  async testSource() {
-    // Collect current pattern data
-    const patterns = [];
-    this.elements.urlPatternsList.querySelectorAll('.pattern-item').forEach(item => {
-      const pattern = item.querySelector('.pattern-value').value.trim();
-      const type = item.querySelector('.pattern-type').value;
-      if (pattern) {
-        patterns.push({ pattern, type });
-      }
-    });
-
-    if (patterns.length === 0) {
-      alert('Please add at least one URL pattern to test');
-      return;
-    }
-
-    // Prompt for test URL
-    const testUrl = prompt('Enter a URL to test against these patterns:');
-    if (!testUrl) return;
-
-    // Test locally
-    const matches = patterns.some(p => {
-      try {
-        switch (p.type) {
-          case 'contains':
-            return testUrl.toLowerCase().includes(p.pattern.toLowerCase());
-          case 'regex':
-            return new RegExp(p.pattern, 'i').test(testUrl);
-          case 'exact':
-            return testUrl === p.pattern;
-          default:
-            return false;
-        }
-      } catch (err) {
-        console.error('Error testing pattern:', err);
-        return false;
-      }
-    });
-
-    if (matches) {
-      alert('✅ URL matches!\n\nThe URL matches one or more of your patterns.');
-    } else {
-      alert('❌ No match\n\nThe URL does not match any of your patterns.');
     }
   }
 
@@ -472,7 +639,7 @@ export class SourceManager {
         });
 
         if (response.success) {
-          alert(`✅ Successfully imported ${response.count} source(s)`);
+          alert(`Successfully imported ${response.count} source(s)`);
           await this.loadSources();
 
           // Sync sources to proxy if running
@@ -508,11 +675,344 @@ export class SourceManager {
 
       if (syncResponse.ok) {
         const result = await syncResponse.json();
-        console.log(`[SourceManager] ✅ Synced ${result.synced} sources to proxy`);
+        console.log(`[SourceManager] Synced ${result.synced} sources to proxy`);
       }
     } catch (err) {
       // Silently fail if proxy not running
       console.log('[SourceManager] Could not sync sources to proxy:', err.message);
     }
+  }
+
+  // Helper functions for auto-generating source info
+  humanizeDomain(domain) {
+    let name = domain.replace(/\.(com|org|io|co|net)$/, '');
+    name = name.split(/[.-]/)
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+    return name;
+  }
+
+  selectIcon(domain) {
+    const iconMap = {
+      'reddit': '🔵',
+      'segment': '📊',
+      'google': '📈',
+      'mixpanel': '🔮',
+      'amplitude': '📡',
+      'facebook': '📘',
+      'twitter': '🐦',
+      'honey': '🍯',
+      'api': '⚡'
+    };
+
+    for (const [keyword, icon] of Object.entries(iconMap)) {
+      if (domain.toLowerCase().includes(keyword)) {
+        return icon;
+      }
+    }
+
+    return '📊';
+  }
+
+  generateColor(domain) {
+    const colors = [
+      '#6366F1', '#8B5CF6', '#EC4899', '#F59E0B',
+      '#10B981', '#3B82F6', '#EF4444', '#14B8A6'
+    ];
+    const hash = domain.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    return colors[hash % colors.length];
+  }
+
+  // ============================================
+  // Field Picker Methods
+  // ============================================
+
+  /**
+   * Toggle field picker dropdown
+   */
+  toggleFieldPicker(fieldType, pickerElement) {
+    if (this.activeFieldPicker === fieldType) {
+      this.closeFieldPicker();
+      return;
+    }
+
+    // Close any open picker first
+    this.closeFieldPicker();
+
+    // Open this picker
+    this.activeFieldPicker = fieldType;
+    pickerElement.classList.add('open');
+
+    // Position and show dropdown
+    const dropdown = this.elements.fieldOptionsDropdown;
+    const rect = pickerElement.getBoundingClientRect();
+    const modalContent = this.elements.sourceEditorModal.querySelector('.modal-content');
+    const modalRect = modalContent.getBoundingClientRect();
+
+    // Populate options first so we can measure dropdown height
+    this.populateFieldOptions(fieldType);
+
+    dropdown.style.left = `${rect.left - modalRect.left}px`;
+    dropdown.style.width = `${rect.width}px`;
+    dropdown.style.display = 'block';
+
+    // Check if dropdown would overflow the modal bottom
+    const dropdownHeight = dropdown.offsetHeight;
+    const spaceBelow = modalRect.bottom - rect.bottom - 20; // 20px buffer
+    const spaceAbove = rect.top - modalRect.top - 20;
+
+    if (spaceBelow < dropdownHeight && spaceAbove > spaceBelow) {
+      // Position above the picker
+      dropdown.style.top = 'auto';
+      dropdown.style.bottom = `${modalRect.bottom - rect.top + 4}px`;
+      dropdown.classList.add('dropdown-above');
+    } else {
+      // Position below the picker (default)
+      dropdown.style.top = `${rect.bottom - modalRect.top + 4}px`;
+      dropdown.style.bottom = 'auto';
+      dropdown.classList.remove('dropdown-above');
+    }
+  }
+
+  /**
+   * Close field picker dropdown
+   */
+  closeFieldPicker() {
+    if (!this.activeFieldPicker) return;
+
+    // Remove open class from all pickers
+    this.elements.fieldPickerEventName?.classList.remove('open');
+    this.elements.fieldPickerTimestamp?.classList.remove('open');
+    this.elements.fieldPickerUserId?.classList.remove('open');
+
+    // Hide dropdown and reset position classes
+    this.elements.fieldOptionsDropdown.style.display = 'none';
+    this.elements.fieldOptionsDropdown.classList.remove('dropdown-above');
+    this.activeFieldPicker = null;
+  }
+
+  /**
+   * Populate field options dropdown
+   */
+  populateFieldOptions(fieldType) {
+    const listEl = this.elements.fieldOptionsDropdown.querySelector('.field-options-list');
+    const currentValue = this.getFieldValue(fieldType);
+
+    // Get auto-detected value for this field type
+    const autoDetected = this.getAutoDetectedField(fieldType);
+
+    // Show auto-detected field with its sample value
+    let autoDetectLabel = 'Best match';
+    if (autoDetected) {
+      const sampleValue = this.formatFieldValue(autoDetected.value);
+      autoDetectLabel = `→ ${autoDetected.key}: ${sampleValue}`;
+    }
+
+    let html = `
+      <div class="field-option auto-detect ${!currentValue ? 'selected' : ''}" data-value="">
+        <span class="field-option-key">Auto-detect</span>
+        <span class="field-option-value">${autoDetectLabel}</span>
+        ${!currentValue ? '<span class="field-option-check">✓</span>' : ''}
+      </div>
+    `;
+
+    // Add all available fields
+    for (const field of this.availableFields) {
+      const isSelected = currentValue === field.path;
+      const valueClass = typeof field.value === 'string' ? 'string' :
+                        typeof field.value === 'number' ? 'number' : '';
+      const displayValue = this.formatFieldValue(field.value);
+
+      html += `
+        <div class="field-option ${isSelected ? 'selected' : ''}" data-value="${field.path}">
+          <span class="field-option-key">${field.path}</span>
+          <span class="field-option-value ${valueClass}">${displayValue}</span>
+          ${isSelected ? '<span class="field-option-check">✓</span>' : ''}
+        </div>
+      `;
+    }
+
+    listEl.innerHTML = html;
+
+    // Add click handlers
+    listEl.querySelectorAll('.field-option').forEach(option => {
+      option.addEventListener('click', () => {
+        this.selectField(fieldType, option.dataset.value);
+      });
+    });
+  }
+
+  /**
+   * Select a field for a field type
+   */
+  selectField(fieldType, value) {
+    // Update hidden input
+    const inputMap = {
+      eventName: this.elements.fieldEventName,
+      timestamp: this.elements.fieldTimestamp,
+      userId: this.elements.fieldUserId
+    };
+    inputMap[fieldType].value = value;
+
+    // Update picker display
+    this.updateFieldPickerDisplay(fieldType, value);
+
+    // Close dropdown
+    this.closeFieldPicker();
+  }
+
+  /**
+   * Update field picker display
+   */
+  updateFieldPickerDisplay(fieldType, value) {
+    const pickerMap = {
+      eventName: this.elements.fieldPickerEventName,
+      timestamp: this.elements.fieldPickerTimestamp,
+      userId: this.elements.fieldPickerUserId
+    };
+    const picker = pickerMap[fieldType];
+    if (!picker) return;
+    const valueSpan = picker.querySelector('.field-picker-value');
+
+    if (!value) {
+      // Show auto-detected value if available
+      const autoDetected = this.getAutoDetectedField(fieldType);
+      if (autoDetected) {
+        const sampleValue = this.formatFieldValue(autoDetected.value);
+        valueSpan.innerHTML = `<span class="auto-label">auto</span> → ${autoDetected.key}: <span class="field-sample-inline">${sampleValue}</span>`;
+      } else {
+        valueSpan.textContent = 'auto-detect';
+      }
+      valueSpan.classList.add('auto');
+      picker.classList.remove('selected');
+    } else {
+      // Find the field to show sample value
+      const field = this.availableFields.find(f => f.path === value);
+      const sample = field ? `: ${this.formatFieldValue(field.value)}` : '';
+      valueSpan.innerHTML = `<strong>${value}</strong><span class="field-sample">${sample}</span>`;
+      valueSpan.classList.remove('auto');
+      picker.classList.add('selected');
+    }
+  }
+
+  /**
+   * Get current value for a field type
+   */
+  getFieldValue(fieldType) {
+    const inputMap = {
+      eventName: this.elements.fieldEventName,
+      timestamp: this.elements.fieldTimestamp,
+      userId: this.elements.fieldUserId
+    };
+    return inputMap[fieldType]?.value || '';
+  }
+
+  /**
+   * Get auto-detected field for a field type
+   */
+  getAutoDetectedField(fieldType) {
+    const detectionOrder = {
+      eventName: ['event', 'eventName', 'event_name', 'action', 'name', 'type', 'noun'],
+      timestamp: ['timestamp', 'client_timestamp', 'time', 'ts', 'sentAt', 'created_at'],
+      userId: ['userId', 'user_id', 'uid', 'anonymousId', 'anonymous_id']
+    };
+
+    const fields = detectionOrder[fieldType] || [];
+    for (const key of fields) {
+      const match = this.availableFields.find(f => f.path === key || f.path.endsWith('.' + key));
+      if (match) return match;
+    }
+    return null;
+  }
+
+  /**
+   * Format field value for display
+   */
+  formatFieldValue(value) {
+    if (value === null) return 'null';
+    if (value === undefined) return 'undefined';
+    if (typeof value === 'string') {
+      return value.length > 30 ? `"${value.slice(0, 30)}..."` : `"${value}"`;
+    }
+    if (typeof value === 'number') return String(value);
+    if (typeof value === 'boolean') return String(value);
+    if (Array.isArray(value)) return `[${value.length} items]`;
+    if (typeof value === 'object') return `{${Object.keys(value).length} keys}`;
+    return String(value);
+  }
+
+  /**
+   * Extract all fields from a payload object (flattened)
+   */
+  extractFieldsFromPayload(payload, prefix = '') {
+    const fields = [];
+
+    if (!payload || typeof payload !== 'object') return fields;
+
+    // Handle arrays - look for the first item
+    if (Array.isArray(payload)) {
+      if (payload.length > 0 && typeof payload[0] === 'object') {
+        return this.extractFieldsFromPayload(payload[0], prefix);
+      }
+      return fields;
+    }
+
+    for (const [key, value] of Object.entries(payload)) {
+      const path = prefix ? `${prefix}.${key}` : key;
+
+      // Add this field if it's a primitive
+      if (value === null || typeof value !== 'object') {
+        fields.push({ path, key, value, type: typeof value });
+      } else if (Array.isArray(value)) {
+        // For arrays, show the array itself
+        fields.push({ path, key, value, type: 'array' });
+        // And recurse into first element if it's an object
+        if (value.length > 0 && typeof value[0] === 'object') {
+          fields.push(...this.extractFieldsFromPayload(value[0], `${path}[0]`));
+        }
+      } else {
+        // For objects, recurse
+        fields.push(...this.extractFieldsFromPayload(value, path));
+      }
+    }
+
+    return fields;
+  }
+
+  /**
+   * Initialize field pickers with sample payload
+   */
+  initFieldPickers(payload) {
+    console.log('[SourceManager] initFieldPickers called with:', payload);
+    this.samplePayload = payload;
+    this.availableFields = payload ? this.extractFieldsFromPayload(payload) : [];
+    console.log('[SourceManager] Extracted fields:', this.availableFields);
+
+    // Reset all pickers to auto-detect
+    this.elements.fieldEventName.value = '';
+    this.elements.fieldTimestamp.value = '';
+    this.elements.fieldUserId.value = '';
+
+    this.updateFieldPickerDisplay('eventName', '');
+    this.updateFieldPickerDisplay('timestamp', '');
+    this.updateFieldPickerDisplay('userId', '');
+
+    console.log('[SourceManager] Initialized field pickers with', this.availableFields.length, 'fields');
+  }
+
+  /**
+   * Reset field pickers (no sample payload available)
+   */
+  resetFieldPickers() {
+    this.samplePayload = null;
+    this.availableFields = [];
+
+    this.elements.fieldEventName.value = '';
+    this.elements.fieldTimestamp.value = '';
+    this.elements.fieldUserId.value = '';
+
+    this.updateFieldPickerDisplay('eventName', '');
+    this.updateFieldPickerDisplay('timestamp', '');
+    this.updateFieldPickerDisplay('userId', '');
   }
 }

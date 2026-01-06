@@ -1,322 +1,260 @@
-// Analytics Payload Parsers
-// Supports Segment, Google Analytics, GraphQL, and custom formats
+// Smart Universal Analytics Parser
+// Auto-detects event structure without hardcoded parser types
+// Uses intelligent field detection with optional overrides
 
 export class AnalyticsParser {
+  // Field detection order - checked in sequence until found
+  static FIELD_DETECTION = {
+    eventName: ['event', 'eventName', 'event_name', 'code', 'action', 'name', 'type', 'eventType'],
+    timestamp: ['timestamp', 'client_ts', 'client_timestamp', 'time', 'ts', 'sentAt', 'sent_at', 'created_at'],
+    userId: ['userId', 'user_id', 'uid', 'anonymousId', 'anonymous_id', 'anonId'],
+    properties: ['properties', 'props', 'data', 'payload', 'params', 'attributes']
+  };
+
+  // Array field detection - where events might be stored
+  static EVENT_ARRAY_FIELDS = ['batch', 'events', 'data', 'items', 'records'];
+
   /**
-   * Main parsing function - detects format and extracts events
+   * Main parsing function - smart auto-detection
    * @param {string} url - Request URL
    * @param {object} requestBody - Request body
    * @param {string} initiator - Request initiator
-   * @param {SourceConfig} source - Source configuration (optional)
+   * @param {SourceConfig} source - Source configuration (optional, for field overrides)
    */
   static parseRequest(url, requestBody, initiator, source = null) {
+    try {
+      const data = this.decodeRequestBody(requestBody);
+      if (!data || typeof data !== 'object') {
+        return [];
+      }
+
+      const events = this.parsePayload(data, source?.fieldMappings || {});
+
+      // Add metadata and source info to all events
+      return events.map(event => ({
+        ...event,
+        _source: source?.id || 'unknown',
+        _sourceName: source?.name || 'Unknown',
+        _sourceIcon: source?.icon || '📊',
+        _sourceColor: source?.color || '#6366F1',
+        _metadata: {
+          capturedAt: new Date().toISOString(),
+          url: url,
+          initiator: initiator
+        }
+      }));
+    } catch (err) {
+      console.error('[Parser] Error parsing request:', err);
+      return [];
+    }
+  }
+
+  /**
+   * Parse payload with smart auto-detection
+   * @param {object} data - Decoded request body
+   * @param {object} fieldMappings - Optional field overrides { eventName: 'code', timestamp: 'client_ts' }
+   */
+  static parsePayload(data, fieldMappings = {}) {
     const events = [];
 
-    // Use source-specific parser if available
-    if (source && source.parser) {
-      switch (source.parser) {
-        case 'segment':
-          events.push(...this.parseSegment(requestBody));
-          break;
-        case 'google-analytics':
-          events.push(...this.parseGoogleAnalytics(requestBody));
-          break;
-        case 'reddit':
-          events.push(...this.parseReddit(requestBody));
-          break;
-        case 'graphql':
-          events.push(...this.parseGraphQL(requestBody));
-          break;
-        case 'generic':
-          events.push(...this.parseGenericJSON(requestBody, source));
-          break;
-        default:
-          // Unknown parser, fall back to generic
-          events.push(...this.parseGenericJSON(requestBody, source));
-      }
-    } else {
-      // Legacy behavior - auto-detect based on URL
-      if (url.includes('segment.') || url.includes('/v1/batch') || url.includes('/v1/track')) {
-        events.push(...this.parseSegment(requestBody));
-      } else if (url.includes('google-analytics.com') || url.includes('/collect')) {
-        events.push(...this.parseGoogleAnalytics(requestBody));
-      } else if (url.includes('reddit.com') && (url.includes('/events') || url.includes('/svc/shreddit'))) {
-        events.push(...this.parseReddit(requestBody));
-      } else if (url.includes('graphql') || this.looksLikeGraphQL(requestBody)) {
-        events.push(...this.parseGraphQL(requestBody));
-      } else {
-        events.push(...this.parseGenericJSON(requestBody, source));
-      }
-    }
+    // Step 1: Find events array (batch, events, or root)
+    const eventArray = this.findEventArray(data);
 
-    // Add metadata to all events
-    return events.map(event => ({
-      ...event,
-      _metadata: {
-        capturedAt: new Date().toISOString(),
-        url: url,
-        initiator: initiator,
-        parser: event._parser || (source ? source.parser : 'unknown')
-      }
-    }));
-  }
-
-  /**
-   * Parse Segment analytics format
-   * Handles /v1/track, /v1/batch endpoints
-   */
-  static parseSegment(requestBody) {
-    try {
-      const data = this.decodeRequestBody(requestBody);
-      const events = [];
-
-      if (data.batch && Array.isArray(data.batch)) {
-        // Batch format
-        data.batch.forEach(item => {
-          events.push({
-            id: this.generateId(),
-            timestamp: item.timestamp || item.sentAt || new Date().toISOString(),
-            type: item.type || 'track',
-            event: item.event || item.type,
-            properties: item.properties || {},
-            context: item.context || {},
-            userId: item.userId,
-            anonymousId: item.anonymousId,
-            messageId: item.messageId,
-            integrations: item.integrations,
-            _parser: 'segment-batch'
-          });
-        });
-      } else if (data.event) {
-        // Single track event
-        events.push({
-          id: this.generateId(),
-          timestamp: data.timestamp || data.sentAt || new Date().toISOString(),
-          type: data.type || 'track',
-          event: data.event,
-          properties: data.properties || {},
-          context: data.context || {},
-          userId: data.userId,
-          anonymousId: data.anonymousId,
-          messageId: data.messageId,
-          integrations: data.integrations,
-          _parser: 'segment-track'
-        });
-      }
-
-      return events;
-    } catch (err) {
-      console.error('Error parsing Segment data:', err);
-      return [];
-    }
-  }
-
-  /**
-   * Parse Google Analytics format
-   * Handles Measurement Protocol and GA4
-   */
-  static parseGoogleAnalytics(requestBody) {
-    try {
-      const data = this.decodeRequestBody(requestBody);
-      const events = [];
-
-      // GA4 format (JSON)
-      if (data.events && Array.isArray(data.events)) {
-        data.events.forEach(event => {
-          events.push({
-            id: this.generateId(),
-            timestamp: new Date().toISOString(),
-            type: 'ga4',
-            event: event.name,
-            properties: event.params || {},
-            userId: data.user_id,
-            clientId: data.client_id,
-            _parser: 'google-analytics-4'
-          });
-        });
-      }
-      // Universal Analytics (URL-encoded)
-      else if (typeof data === 'string' && data.includes('&')) {
-        const params = new URLSearchParams(data);
-        events.push({
-          id: this.generateId(),
-          timestamp: new Date().toISOString(),
-          type: 'ua',
-          event: params.get('ea') || params.get('t'),
-          properties: {
-            category: params.get('ec'),
-            action: params.get('ea'),
-            label: params.get('el'),
-            value: params.get('ev')
-          },
-          clientId: params.get('cid'),
-          _parser: 'google-analytics-ua'
-        });
-      }
-
-      return events;
-    } catch (err) {
-      console.error('Error parsing Google Analytics data:', err);
-      return [];
-    }
-  }
-
-  /**
-   * Parse Reddit analytics format
-   * Handles /events and /svc/shreddit/events endpoints
-   */
-  static parseReddit(requestBody) {
-    try {
-      const data = this.decodeRequestBody(requestBody);
-      const events = [];
-
-      // Skip if not an object
-      if (typeof data !== 'object' || data === null) {
-        return [];
-      }
-
-      // Reddit can send individual events or arrays
-      const redditEvents = Array.isArray(data) ? data : [data];
-
-      redditEvents.forEach(item => {
-        // Reddit event structure
-        const event = {
-          id: this.generateId(),
-          timestamp: item.client_timestamp || item.timestamp || new Date().toISOString(),
-          type: 'track',
-          event: item.action || item.event || item.noun || 'reddit_event',
-          properties: {
-            action: item.action,
-            action_info: item.action_info,
-            source: item.source,
-            noun: item.noun,
-            ...item
-          },
-          context: {
-            user_agent: item.user_agent,
-            screen: item.screen,
-            viewport: item.viewport
-          },
-          _parser: 'reddit'
-        };
-
-        events.push(event);
+    if (eventArray && Array.isArray(eventArray)) {
+      // Process each event in the array
+      eventArray.forEach(item => {
+        const event = this.extractEvent(item, fieldMappings, data);
+        if (event) {
+          events.push(event);
+        }
       });
-
-      return events;
-    } catch (err) {
-      console.error('Error parsing Reddit data:', err);
-      return [];
+    } else {
+      // Single event - process the root object
+      const event = this.extractEvent(data, fieldMappings);
+      if (event) {
+        events.push(event);
+      }
     }
+
+    return events;
   }
 
   /**
-   * Parse GraphQL requests that contain analytics data
+   * Find the events array in a payload
    */
-  static parseGraphQL(requestBody) {
-    try {
-      const data = this.decodeRequestBody(requestBody);
-      const events = [];
-
-      if (data.query && data.variables) {
-        // Look for common analytics patterns in variables
-        const variables = data.variables;
-
-        // Extract event data from variables
-        if (variables.event || variables.eventName) {
-          events.push({
-            id: this.generateId(),
-            timestamp: variables.timestamp || new Date().toISOString(),
-            type: 'graphql',
-            event: variables.event || variables.eventName,
-            properties: variables.properties || variables.data || {},
-            query: data.query.substring(0, 100) + '...',
-            _parser: 'graphql'
-          });
-        }
-
-        // Check for batch operations
-        if (data.batch && Array.isArray(data.batch)) {
-          data.batch.forEach(op => {
-            if (op.variables && (op.variables.event || op.variables.eventName)) {
-              events.push({
-                id: this.generateId(),
-                timestamp: op.variables.timestamp || new Date().toISOString(),
-                type: 'graphql-batch',
-                event: op.variables.event || op.variables.eventName,
-                properties: op.variables.properties || op.variables.data || {},
-                _parser: 'graphql-batch'
-              });
-            }
-          });
-        }
+  static findEventArray(data) {
+    for (const field of this.EVENT_ARRAY_FIELDS) {
+      if (data[field] && Array.isArray(data[field])) {
+        return data[field];
       }
-
-      return events;
-    } catch (err) {
-      console.error('Error parsing GraphQL data:', err);
-      return [];
     }
+    // Check if data itself is an array
+    if (Array.isArray(data)) {
+      return data;
+    }
+    return null;
   }
 
   /**
-   * Generic JSON parser for custom analytics
-   * Looks for common event patterns
-   * @param {object} requestBody - Request body
-   * @param {SourceConfig} source - Source configuration (optional)
+   * Extract a single event from data
+   * @param {object} item - Event data
+   * @param {object} fieldMappings - Optional field overrides
+   * @param {object} parentData - Parent data for context extraction
    */
-  static parseGenericJSON(requestBody, source = null) {
-    try {
-      const data = this.decodeRequestBody(requestBody);
-      const events = [];
+  static extractEvent(item, fieldMappings = {}, parentData = null) {
+    if (!item || typeof item !== 'object') {
+      return null;
+    }
 
-      // Skip if not an object
-      if (typeof data !== 'object' || data === null) {
-        return [];
+    // Extract fields using mappings (overrides) or auto-detection
+    const eventName = this.extractField(item, 'eventName', fieldMappings);
+    const timestamp = this.extractField(item, 'timestamp', fieldMappings) || new Date().toISOString();
+    const userId = this.extractField(item, 'userId', fieldMappings) ||
+                   (parentData ? this.extractField(parentData, 'userId', fieldMappings) : null);
+
+    // Get properties - either from a nested properties field or the item itself
+    const propertiesField = this.findField(item, this.FIELD_DETECTION.properties);
+    const properties = propertiesField ? item[propertiesField] : this.extractProperties(item);
+
+    // Extract context if present (common in Segment-style events)
+    const context = item.context || parentData?.context || {};
+
+    return {
+      id: this.generateId(),
+      timestamp: this.normalizeTimestamp(timestamp),
+      event: eventName || 'unknown',
+      properties: properties,
+      context: context,
+      userId: userId,
+      anonymousId: item.anonymousId || parentData?.anonymousId,
+      type: item.type || 'track'
+    };
+  }
+
+  /**
+   * Extract a field using mapping override or auto-detection
+   * @param {object} data - Data to extract from
+   * @param {string} fieldType - Type of field ('eventName', 'timestamp', 'userId')
+   * @param {object} fieldMappings - Optional overrides
+   */
+  static extractField(data, fieldType, fieldMappings = {}) {
+    // Check for override mapping first
+    if (fieldMappings[fieldType]) {
+      const mappedField = fieldMappings[fieldType];
+      const value = this.getNestedValue(data, mappedField);
+      if (value !== undefined) {
+        return value;
       }
+    }
 
-      // If source has field mappings, use them
-      if (source && source.fieldMappings) {
-        const extracted = source.extractFields(data);
+    // Fall back to auto-detection
+    const detectionFields = this.FIELD_DETECTION[fieldType] || [];
+    return this.findFieldValue(data, detectionFields);
+  }
 
-        // Only create event if we found an event name
-        if (extracted.eventName) {
-          events.push({
-            id: this.generateId(),
-            timestamp: extracted.timestamp || new Date().toISOString(),
-            type: 'custom',
-            event: extracted.eventName,
-            properties: extracted.properties || data,
-            userId: extracted.userId,
-            _parser: 'generic-config'
-          });
-        }
+  /**
+   * Find first matching field name in data
+   */
+  static findField(data, fields) {
+    for (const field of fields) {
+      if (data[field] !== undefined) {
+        return field;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Find first matching field value in data
+   */
+  static findFieldValue(data, fields) {
+    for (const field of fields) {
+      const value = this.getNestedValue(data, field);
+      if (value !== undefined && value !== null) {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Get a potentially nested value from data (supports dot notation and array indexing)
+   * Examples: "event", "info.action", "info[0].action", "data[0].items[1].name"
+   */
+  static getNestedValue(data, path) {
+    if (!path || !data) return undefined;
+
+    // Ensure path is a string
+    if (typeof path !== 'string') return undefined;
+
+    // Parse path into segments, handling both dot notation and array indexing
+    // "info[0].action" -> ["info", "0", "action"]
+    const parts = path.split(/\.|\[|\]/).filter(p => p !== '');
+    let current = data;
+
+    for (const part of parts) {
+      if (current === null || current === undefined || typeof current !== 'object') {
+        return undefined;
+      }
+      // Try as array index if it's a number
+      const index = parseInt(part, 10);
+      if (!isNaN(index) && Array.isArray(current)) {
+        current = current[index];
       } else {
-        // Legacy behavior - look for common event field names
-        const eventFields = ['event', 'eventName', 'event_name', 'type', 'action', 'eventType'];
-        const eventField = eventFields.find(field => data[field]);
-
-        if (eventField) {
-          events.push({
-            id: this.generateId(),
-            timestamp: data.timestamp || data.time || data.sentAt || new Date().toISOString(),
-            type: 'custom',
-            event: data[eventField],
-            properties: this.extractProperties(data, [eventField, 'timestamp', 'time', 'sentAt']),
-            _parser: 'generic-json'
-          });
-        }
+        current = current[part];
       }
+    }
 
-      return events;
-    } catch (err) {
-      console.error('Error parsing generic JSON:', err);
-      return [];
+    return current;
+  }
+
+  /**
+   * Normalize timestamp to ISO string
+   */
+  static normalizeTimestamp(timestamp) {
+    if (!timestamp) return new Date().toISOString();
+
+    // Already ISO string
+    if (typeof timestamp === 'string' && timestamp.includes('T')) {
+      return timestamp;
+    }
+
+    // Unix timestamp (seconds or milliseconds)
+    if (typeof timestamp === 'number') {
+      // If less than a reasonable year (2000), assume it's in seconds
+      const ms = timestamp < 10000000000 ? timestamp * 1000 : timestamp;
+      return new Date(ms).toISOString();
+    }
+
+    // Try to parse as date
+    try {
+      return new Date(timestamp).toISOString();
+    } catch {
+      return new Date().toISOString();
     }
   }
 
   /**
-   * Helper: Decode request body from various formats
+   * Extract properties from object, excluding metadata fields
+   */
+  static extractProperties(obj) {
+    const excludeKeys = [
+      'id', 'timestamp', 'time', 'ts', 'sentAt', 'sent_at', 'created_at',
+      'userId', 'user_id', 'anonymousId', 'anonymous_id',
+      'context', '_metadata', '_parser', '_source'
+    ];
+
+    const props = {};
+    for (const [key, value] of Object.entries(obj)) {
+      if (!excludeKeys.includes(key)) {
+        props[key] = value;
+      }
+    }
+    return props;
+  }
+
+  /**
+   * Decode request body from various formats
    */
   static decodeRequestBody(requestBody) {
     if (!requestBody) return null;
@@ -354,34 +292,90 @@ export class AnalyticsParser {
   }
 
   /**
-   * Helper: Check if request body looks like GraphQL
-   */
-  static looksLikeGraphQL(requestBody) {
-    try {
-      const data = this.decodeRequestBody(requestBody);
-      return data && (data.query || data.operationName);
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Helper: Extract properties from object, excluding specified keys
-   */
-  static extractProperties(obj, excludeKeys = []) {
-    const props = {};
-    for (const [key, value] of Object.entries(obj)) {
-      if (!excludeKeys.includes(key) && key !== '_metadata' && key !== '_parser') {
-        props[key] = value;
-      }
-    }
-    return props;
-  }
-
-  /**
-   * Helper: Generate unique ID
+   * Generate unique ID
    */
   static generateId() {
     return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+  }
+
+  // ============================================
+  // Field Detection Helpers (for auto-add source flow)
+  // ============================================
+
+  /**
+   * Analyze a payload and detect which fields map to what
+   * Returns detected fields and confidence
+   * @param {object} data - Payload to analyze
+   * @returns {object} Detection results with field mappings
+   */
+  static detectFields(data) {
+    const decoded = this.decodeRequestBody(data);
+    if (!decoded || typeof decoded !== 'object') {
+      return { success: false, error: 'Invalid payload' };
+    }
+
+    const result = {
+      success: true,
+      eventArray: null,
+      fields: {
+        eventName: { detected: null, value: null },
+        timestamp: { detected: null, value: null },
+        userId: { detected: null, value: null }
+      },
+      sampleEvent: null
+    };
+
+    // Find event array
+    const arrayField = this.EVENT_ARRAY_FIELDS.find(f => decoded[f] && Array.isArray(decoded[f]));
+    if (arrayField) {
+      result.eventArray = arrayField;
+      result.sampleEvent = decoded[arrayField][0];
+    } else if (Array.isArray(decoded)) {
+      result.eventArray = 'root';
+      result.sampleEvent = decoded[0];
+    } else {
+      result.sampleEvent = decoded;
+    }
+
+    // Detect fields from sample event
+    const sample = result.sampleEvent || decoded;
+
+    for (const [fieldType, detectionFields] of Object.entries(this.FIELD_DETECTION)) {
+      if (fieldType === 'properties') continue; // Skip properties detection
+
+      const foundField = this.findField(sample, detectionFields);
+      if (foundField) {
+        result.fields[fieldType] = {
+          detected: foundField,
+          value: sample[foundField]
+        };
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Get a flat list of all fields in an object (for field picker UI)
+   * @param {object} data - Object to flatten
+   * @param {string} prefix - Current path prefix
+   * @returns {Array<{path: string, value: any, type: string}>}
+   */
+  static flattenObject(data, prefix = '') {
+    const fields = [];
+
+    for (const [key, value] of Object.entries(data || {})) {
+      const path = prefix ? `${prefix}.${key}` : key;
+      const type = Array.isArray(value) ? 'array' : typeof value;
+
+      fields.push({ path, value, type });
+
+      // Recurse into objects (but not arrays)
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        fields.push(...this.flattenObject(value, path));
+      }
+    }
+
+    return fields;
   }
 }

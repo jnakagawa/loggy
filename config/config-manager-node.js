@@ -3,13 +3,15 @@
  *
  * This is a simplified version of ConfigManager that works in Node.js
  * environment, using file system for storage instead of chrome.storage.
+ * Uses domain-based matching like the browser version.
  */
 
 const fs = require('fs');
 const path = require('path');
 
-// Import source config and defaults (need to convert to CommonJS)
-// For now, we'll inline the necessary parts
+/**
+ * SourceConfig - Domain-based source configuration
+ */
 class SourceConfig {
   constructor(id, config = {}) {
     this.id = id;
@@ -17,66 +19,106 @@ class SourceConfig {
     this.enabled = config.enabled ?? true;
     this.color = config.color || '#6366F1';
     this.icon = config.icon || '📊';
-    this.urlPatterns = config.urlPatterns || [];
-    this.fieldMappings = config.fieldMappings || {};
-    this.parser = config.parser || 'generic';
+    this.domain = config.domain || ''; // Base domain to match
+    this.fieldMappings = this.sanitizeFieldMappings(config.fieldMappings); // Optional overrides
+    this.createdBy = config.createdBy || 'system';
     this.stats = config.stats || { eventsCapture: 0 };
+
+    // Migration: Convert old urlPatterns to domain
+    if (config.urlPatterns && config.urlPatterns.length > 0 && !config.domain) {
+      this.domain = this.migrateToDomain(config.urlPatterns);
+    }
   }
 
-  matches(url) {
-    if (!this.enabled) return false;
-    return this.urlPatterns.some(p => this.matchPattern(url, p));
+  /**
+   * Sanitize fieldMappings - ensure all values are strings, not arrays
+   * Prevents corrupted data from breaking event parsing
+   */
+  sanitizeFieldMappings(mappings) {
+    if (!mappings || typeof mappings !== 'object') return {};
+
+    const sanitized = {};
+    for (const [key, value] of Object.entries(mappings)) {
+      // Only keep string values - arrays are invalid
+      if (typeof value === 'string' && value.trim()) {
+        sanitized[key] = value.trim();
+      }
+      // Skip arrays, objects, or empty values
+    }
+    return sanitized;
   }
 
-  matchPattern(url, pattern) {
+  /**
+   * Migrate old urlPatterns to a single domain
+   */
+  migrateToDomain(urlPatterns) {
+    const firstPattern = urlPatterns[0];
+    if (!firstPattern) return '';
+
+    const pattern = firstPattern.pattern || firstPattern;
+
     try {
-      switch (pattern.type) {
-        case 'contains':
-          return url.toLowerCase().includes(pattern.pattern.toLowerCase());
-        case 'regex':
-          return new RegExp(pattern.pattern, 'i').test(url);
-        case 'exact':
-          return url === pattern.pattern;
-        default:
-          return false;
+      if (pattern.includes('://')) {
+        const url = new URL(pattern);
+        return SourceConfig.extractBaseDomain(url.hostname);
       }
-    } catch (err) {
-      return false;
+      // Handle domain-like strings (e.g., "s.joinhoney.com" or "s.joinhoney.com/evs")
+      if (pattern.includes('.')) {
+        const domainPart = pattern.split('/')[0];
+        return SourceConfig.extractBaseDomain(domainPart);
+      }
+      return '';
+    } catch {
+      return '';
     }
   }
 
-  extractFields(payload) {
-    const extracted = {};
+  /**
+   * Extract base domain from hostname (removes subdomains)
+   */
+  static extractBaseDomain(hostname) {
+    if (!hostname) return '';
 
-    for (const [field, paths] of Object.entries(this.fieldMappings)) {
-      if (field === 'properties' && paths === 'all') {
-        extracted.properties = { ...payload };
-        continue;
-      }
+    hostname = hostname.split(':')[0];
 
-      if (Array.isArray(paths)) {
-        for (const pathStr of paths) {
-          const value = this.getNestedValue(payload, pathStr);
-          if (value !== undefined && value !== null) {
-            extracted[field] = value;
-            break;
-          }
-        }
-      } else if (typeof paths === 'string') {
-        const value = this.getNestedValue(payload, paths);
-        if (value !== undefined && value !== null) {
-          extracted[field] = value;
-        }
-      }
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
+      return hostname;
     }
 
-    return extracted;
+    const parts = hostname.toLowerCase().split('.');
+    const specialTLDs = ['co.uk', 'com.au', 'co.nz', 'co.jp', 'com.br'];
+    const lastTwo = parts.slice(-2).join('.');
+
+    if (specialTLDs.includes(lastTwo) && parts.length > 2) {
+      return parts.slice(-3).join('.');
+    }
+
+    if (parts.length >= 2) {
+      return parts.slice(-2).join('.');
+    }
+
+    return hostname;
   }
 
-  getNestedValue(obj, path) {
-    return path.split('.').reduce((current, key) => {
-      return current?.[key];
-    }, obj);
+  /**
+   * Extract base domain from a full URL
+   */
+  static extractBaseDomainFromUrl(url) {
+    try {
+      const urlObj = new URL(url);
+      return SourceConfig.extractBaseDomain(urlObj.hostname);
+    } catch {
+      return '';
+    }
+  }
+
+  /**
+   * Check if this source matches a URL (domain-based)
+   */
+  matches(url) {
+    if (!this.enabled || !this.domain) return false;
+    const urlDomain = SourceConfig.extractBaseDomainFromUrl(url);
+    return urlDomain === this.domain.toLowerCase();
   }
 
   recordCapture() {
@@ -91,77 +133,103 @@ class SourceConfig {
       enabled: this.enabled,
       color: this.color,
       icon: this.icon,
-      urlPatterns: this.urlPatterns,
+      domain: this.domain,
       fieldMappings: this.fieldMappings,
-      parser: this.parser,
+      createdBy: this.createdBy,
       stats: this.stats
     };
   }
 }
 
-// Default sources (same as default-sources.js but in CommonJS)
+/**
+ * Default sources with domain-based matching
+ */
 const DEFAULT_SOURCES = {
   'reddit': {
     name: 'Reddit',
     color: '#FF4500',
     icon: '🔵',
     enabled: true,
-    urlPatterns: [
-      { pattern: 'reddit.com/events', type: 'contains' },
-      { pattern: 'reddit.com/svc/shreddit/events', type: 'contains' }
-    ],
-    fieldMappings: {
-      eventName: ['action', 'event', 'noun'],
-      timestamp: ['client_timestamp', 'timestamp'],
-      userId: ['user_id'],
-      properties: 'all'
-    },
-    parser: 'reddit'
-  },
-  'segment': {
-    name: 'Segment',
-    color: '#52BD95',
-    icon: '📊',
-    enabled: true,
-    urlPatterns: [
-      { pattern: 'segment.io/v1/', type: 'contains' },
-      { pattern: 'segment.com/v1/', type: 'contains' },
-      { pattern: '/v1/batch', type: 'contains' }
-    ],
-    parser: 'segment'
+    domain: 'reddit.com',
+    createdBy: 'system'
   },
   'pie': {
     name: 'Pie',
     color: '#FF6B6B',
     icon: '🥧',
     enabled: true,
-    urlPatterns: [
-      { pattern: 'pie.org/v1/batch', type: 'contains' },
-      { pattern: 'pie-staging.org/v1/batch', type: 'contains' }
-    ],
-    parser: 'segment'
+    domain: 'pie.org',
+    createdBy: 'system'
+  },
+  'honey': {
+    name: 'Honey',
+    color: '#FF6B00',
+    icon: '🍯',
+    enabled: true,
+    domain: 'joinhoney.com',
+    fieldMappings: {
+      eventName: 'code',
+      timestamp: 'client_ts'
+    },
+    createdBy: 'system'
+  },
+  'chatgpt': {
+    name: 'ChatGPT',
+    color: '#10A37F',
+    icon: '🤖',
+    enabled: true,
+    domain: 'openai.com',
+    createdBy: 'system'
+  },
+  'grammarly': {
+    name: 'Grammarly',
+    color: '#15C39A',
+    icon: '✍️',
+    enabled: true,
+    domain: 'grammarly.com',
+    createdBy: 'system'
   }
 };
 
-const FALLBACK_CONFIG = {
-  name: 'Generic Analytics',
-  enabled: true,
-  urlPatterns: [
-    { pattern: '/analytics', type: 'contains' },
-    { pattern: '/events', type: 'contains' },
-    { pattern: '/evs', type: 'contains' },
-    { pattern: '/track', type: 'contains' },
-    { pattern: '/collect', type: 'contains' }
-  ],
-  parser: 'generic'
-};
+/**
+ * Analytics-like endpoint patterns for detecting potential sources
+ */
+const ANALYTICS_ENDPOINT_PATTERNS = [
+  '/analytics',
+  '/events',
+  '/track',
+  '/collect',
+  '/log',
+  '/beacon',
+  '/v1/batch',
+  '/v1/track',
+  '/evs',
+  '/telemetry',
+  '/metrics'
+];
 
+/**
+ * Check if a URL looks like an analytics endpoint
+ */
+function looksLikeAnalyticsEndpoint(url) {
+  try {
+    const urlObj = new URL(url);
+    const pathLower = urlObj.pathname.toLowerCase();
+    return ANALYTICS_ENDPOINT_PATTERNS.some(pattern => pathLower.includes(pattern));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * ConfigManager for Node.js environment
+ */
 class ConfigManagerNode {
   constructor(configPath = null) {
     this.sources = new Map();
-    this.fallback = null;
     this.configPath = configPath || path.join(__dirname, 'proxy-sources.json');
     this.loaded = false;
+    this.unmatchedDomains = new Map();
   }
 
   load() {
@@ -171,8 +239,6 @@ class ConfigManagerNode {
     for (const [id, config] of Object.entries(DEFAULT_SOURCES)) {
       this.sources.set(id, new SourceConfig(id, config));
     }
-
-    this.fallback = new SourceConfig('fallback', FALLBACK_CONFIG);
 
     // Load user config from file if it exists
     try {
@@ -209,23 +275,73 @@ class ConfigManagerNode {
     }
   }
 
+  /**
+   * Find source for URL using domain matching
+   */
   findSourceForUrl(url) {
     for (const [id, source] of this.sources) {
       if (source.enabled && source.matches(url)) {
         return source;
       }
     }
-
-    if (this.fallback && this.fallback.enabled && this.fallback.matches(url)) {
-      return this.fallback;
-    }
-
     return null;
+  }
+
+  /**
+   * Find source by domain
+   */
+  findSourceByDomain(domain) {
+    const normalizedDomain = domain.toLowerCase();
+    for (const [id, source] of this.sources) {
+      if (source.domain.toLowerCase() === normalizedDomain) {
+        return source;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Track unmatched analytics request
+   */
+  trackUnmatchedRequest(url, payload) {
+    if (!looksLikeAnalyticsEndpoint(url)) return;
+
+    const domain = SourceConfig.extractBaseDomainFromUrl(url);
+    if (!domain || this.findSourceByDomain(domain)) return;
+
+    const existing = this.unmatchedDomains.get(domain);
+    if (existing) {
+      existing.count++;
+      existing.lastSeen = Date.now();
+      if (payload) existing.payload = payload;
+    } else {
+      this.unmatchedDomains.set(domain, {
+        domain,
+        url,
+        payload,
+        count: 1,
+        firstSeen: Date.now(),
+        lastSeen: Date.now()
+      });
+    }
+  }
+
+  getUnmatchedDomains() {
+    return Array.from(this.unmatchedDomains.values())
+      .sort((a, b) => b.count - a.count);
   }
 
   getAllSources() {
     return Array.from(this.sources.values());
   }
+
+  addSource(source) {
+    this.sources.set(source.id, source);
+    if (source.domain) {
+      this.unmatchedDomains.delete(source.domain);
+    }
+    this.save();
+  }
 }
 
-module.exports = { ConfigManagerNode, SourceConfig };
+module.exports = { ConfigManagerNode, SourceConfig, looksLikeAnalyticsEndpoint };

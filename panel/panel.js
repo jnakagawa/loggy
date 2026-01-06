@@ -27,6 +27,7 @@ class AnalyticsLoggerUI {
     // Get DOM elements
     this.elements = {
       eventsList: document.getElementById('eventsList'),
+      eventsContainer: document.querySelector('.events-container'),
       emptyState: document.getElementById('emptyState'),
       searchInput: document.getElementById('searchInput'),
       sourceFilter: document.getElementById('sourceFilter'),
@@ -360,6 +361,13 @@ class AnalyticsLoggerUI {
 
   async startProxy() {
     try {
+      // Show initializing state
+      const statusEl = document.getElementById('proxyStatusMain');
+      const btnEl = document.getElementById('proxyActionBtn');
+      statusEl.textContent = 'Initializing...';
+      statusEl.className = 'stat-value initializing';
+      btnEl.disabled = true;
+
       const port = chrome.runtime.connectNative('com.analytics_logger.proxy');
 
       port.postMessage({ action: 'startProxy' });
@@ -385,15 +393,15 @@ class AnalyticsLoggerUI {
 
           // Show success message
           if (response.autoLaunched) {
-            alert('✅ MITM Proxy Started (Like Charles Proxy)!\n\n' +
-              'A new Chrome window opened with HTTPS interception enabled.\n\n' +
-              'This proxy can now capture analytics from extension service workers!\n\n' +
-              'Use your extensions (like Pie) in the new window and events will appear here.\n\n' +
-              'Tip: Look for the yellow "controlled by automated test software" banner.');
+            alert('✅ Proxy Started!\n\n' +
+              'A new Chrome window opened with HTTPS interception.\n\n' +
+              'Use your extensions in that window - events will appear here.\n\n' +
+              'Note: You may see security warnings about the proxy certificate.');
           } else {
             alert(response.message || 'Proxy started successfully!');
           }
         } else {
+          this.updateProxyUI(); // Reset UI on failure
           alert('Failed to start proxy: ' + (response.error || 'Unknown error'));
         }
 
@@ -403,12 +411,14 @@ class AnalyticsLoggerUI {
       port.onDisconnect.addListener(() => {
         if (chrome.runtime.lastError) {
           console.error('[Panel] Native messaging error:', chrome.runtime.lastError);
+          this.updateProxyUI(); // Reset UI
           alert('Native messaging host not installed.\n\nClick "Open Setup Assistant" button above.');
         }
       });
 
     } catch (err) {
       console.error('[Panel] Error starting proxy:', err);
+      this.updateProxyUI(); // Reset UI
       alert('Error: ' + err.message + '\n\nClick "Open Setup Assistant" button to complete setup.');
     }
   }
@@ -496,12 +506,24 @@ class AnalyticsLoggerUI {
           return;
         }
 
+        // Preserve scroll position if user is scrolled down
+        const container = this.elements.eventsContainer;
+        const wasScrolledDown = container.scrollTop > 10;
+        const oldScrollHeight = container.scrollHeight;
+
         // New events added
         this.events.unshift(...message.data);
         this.updateEventTypeFilter();
         this.updateSourcesFilter();
         this.applyFilters();
-        this.updateStats(); // Update stats to reflect new total count
+        this.updateStats();
+
+        // Adjust scroll to keep current view stable
+        if (wasScrolledDown) {
+          const newScrollHeight = container.scrollHeight;
+          const heightDiff = newScrollHeight - oldScrollHeight;
+          container.scrollTop += heightDiff;
+        }
       } else if (message.action === 'eventsCleared') {
         // Events were cleared (possibly by another panel or external action)
         this.events = [];
@@ -517,6 +539,12 @@ class AnalyticsLoggerUI {
         this.isPaused = true;
         this.isAutoPaused = true;
         this.updatePauseButton();
+      } else if (message.action === 'unmatchedDomainsUpdated') {
+        // Refresh pending sources in real-time
+        if (this.sourceManager) {
+          this.sourceManager.loadPendingSources();
+        }
+        this.updatePendingIndicator();
       }
     });
 
@@ -839,11 +867,6 @@ class AnalyticsLoggerUI {
           ${event.userId ? `
             <div class="event-meta-item">
               <span class="event-user">${this.escapeHtml(event.userId)}</span>
-            </div>
-          ` : ''}
-          ${event.type ? `
-            <div class="event-meta-item">
-              <span class="event-type-label">${this.escapeHtml(event.type)}</span>
             </div>
           ` : ''}
         </div>
@@ -1255,10 +1278,10 @@ class AnalyticsLoggerUI {
         const settings = response.settings;
 
         // Populate settings form
-        document.getElementById('enabledSetting').checked = settings.enabled;
         document.getElementById('persistSetting').checked = settings.persistEvents;
         document.getElementById('maxEventsSetting').value = settings.maxEvents;
         document.getElementById('autoPauseHoursSetting').value = settings.autoPauseHours || 3;
+        document.getElementById('detectNewSourcesSetting').checked = settings.detectNewSources !== false;
 
         // Initialize proxy UI
         this.updateProxyUI();
@@ -1277,10 +1300,10 @@ class AnalyticsLoggerUI {
 
   async saveSettings() {
     const settings = {
-      enabled: document.getElementById('enabledSetting').checked,
       persistEvents: document.getElementById('persistSetting').checked,
       maxEvents: parseInt(document.getElementById('maxEventsSetting').value),
-      autoPauseHours: parseInt(document.getElementById('autoPauseHoursSetting').value)
+      autoPauseHours: parseInt(document.getElementById('autoPauseHoursSetting').value),
+      detectNewSources: document.getElementById('detectNewSourcesSetting').checked
     };
 
     try {
@@ -1292,7 +1315,7 @@ class AnalyticsLoggerUI {
       if (response.success) {
         console.log('[Panel] Settings saved');
         this.closeSettings();
-        alert('Settings saved successfully! Reload the extension for changes to take effect.');
+        // Settings are applied immediately - no reload needed
       }
     } catch (err) {
       console.error('[Panel] Error saving settings:', err);

@@ -66,18 +66,15 @@
 
     <!-- Action Bar -->
     <div class="action-bar">
+      <div id="pendingNotification" class="pending-indicator" style="display: none;">
+        <span class="pending-indicator-icon">💡</span>
+        <span class="pending-indicator-text"><strong id="pendingCount">0</strong> new source(s)</span>
+        <button id="viewPendingBtn" class="btn btn-small">View</button>
+      </div>
+      <div class="action-bar-spacer"></div>
       <button id="clearBtn" class="btn btn-danger btn-small">Clear All</button>
       <button id="exportJSONBtn" class="btn btn-primary btn-small">Export JSON</button>
       <button id="exportCSVBtn" class="btn btn-primary btn-small">Export CSV</button>
-    </div>
-
-    <!-- Pending Sources Notification -->
-    <div id="pendingNotification" class="pending-notification" style="display: none;">
-      <span class="pending-notification-icon">💡</span>
-      <span class="pending-notification-text">
-        <strong id="pendingCount">0</strong> new analytics source(s) detected
-      </span>
-      <button id="viewPendingBtn" class="btn btn-primary btn-small">View Sources</button>
     </div>
 
     <!-- Events List -->
@@ -110,13 +107,6 @@
           <div id="generalTab" class="tab-content active">
           <div class="setting-group">
             <label class="setting-label">
-              <input type="checkbox" id="enabledSetting">
-              <span>Enable Event Capture</span>
-            </label>
-          </div>
-
-          <div class="setting-group">
-            <label class="setting-label">
               <input type="checkbox" id="persistSetting">
               <span>Persist Events (save to storage)</span>
             </label>
@@ -142,6 +132,16 @@
             </select>
             <small style="color: #666; font-size: 11px; margin-top: 4px; display: block;">
               Automatically pause event capture after no events are received for this duration.
+            </small>
+          </div>
+
+          <div class="setting-group">
+            <label class="setting-label checkbox-label">
+              <input type="checkbox" id="detectNewSourcesSetting" checked>
+              <span>Detect New Sources</span>
+            </label>
+            <small style="color: #666; font-size: 11px; margin-top: 4px; display: block;">
+              Automatically detect and suggest new analytics sources from unmatched requests.
             </small>
           </div>
 
@@ -191,6 +191,14 @@
         <button id="closeSourceEditorBtn" class="btn-close">✕</button>
       </div>
       <div class="modal-body">
+        <div class="source-enabled-toggle">
+          <label class="toggle-label">
+            <input type="checkbox" id="sourceEnabled" checked>
+            <span class="toggle-switch"></span>
+            <span class="toggle-text">Enabled</span>
+          </label>
+        </div>
+
         <div class="setting-group">
           <label class="setting-label">Name</label>
           <input type="text" id="sourceName" placeholder="e.g., Honey, My App">
@@ -207,31 +215,40 @@
           <input type="color" id="sourceColor" value="#6366F1">
         </div>
 
-        <div class="setting-group">
-          <label class="setting-label">
-            <input type="checkbox" id="sourceEnabled" checked>
-            <span>Enabled</span>
-          </label>
-        </div>
-
         <div class="setting-group field-overrides">
-          <label class="setting-label">Field Overrides (optional - leave empty for auto-detection)</label>
+          <label class="setting-label">Field Mappings</label>
           <small style="color: #666; font-size: 11px; display: block; margin-bottom: 8px;">
-            Only set these if auto-detection gets the wrong field
+            Click to select which payload field maps to each value. Leave empty for auto-detection.
           </small>
-          <div style="display: grid; gap: 8px;">
-            <div>
-              <label style="font-size: 12px; color: #666;">Event Name:</label>
-              <input type="text" id="fieldEventName" placeholder="auto-detected">
+          <div class="field-pickers">
+            <div class="field-picker-row">
+              <label class="field-picker-label">Event Name:</label>
+              <div class="field-picker" id="fieldPickerEventName" data-field="eventName">
+                <span class="field-picker-value">auto-detect</span>
+                <span class="field-picker-arrow"></span>
+              </div>
+              <input type="hidden" id="fieldEventName">
             </div>
-            <div>
-              <label style="font-size: 12px; color: #666;">Timestamp:</label>
-              <input type="text" id="fieldTimestamp" placeholder="auto-detected">
+            <div class="field-picker-row">
+              <label class="field-picker-label">Timestamp:</label>
+              <div class="field-picker" id="fieldPickerTimestamp" data-field="timestamp">
+                <span class="field-picker-value">auto-detect</span>
+                <span class="field-picker-arrow"></span>
+              </div>
+              <input type="hidden" id="fieldTimestamp">
             </div>
-            <div>
-              <label style="font-size: 12px; color: #666;">User ID:</label>
-              <input type="text" id="fieldUserId" placeholder="auto-detected">
+            <div class="field-picker-row">
+              <label class="field-picker-label">User ID:</label>
+              <div class="field-picker" id="fieldPickerUserId" data-field="userId">
+                <span class="field-picker-value">auto-detect</span>
+                <span class="field-picker-arrow"></span>
+              </div>
+              <input type="hidden" id="fieldUserId">
             </div>
+          </div>
+          <!-- Field options dropdown (populated dynamically) -->
+          <div id="fieldOptionsDropdown" class="field-options-dropdown" style="display: none;">
+            <div class="field-options-list"></div>
           </div>
         </div>
 

@@ -23,7 +23,8 @@ let settings = {
   persistEvents: false,
   maxEvents: 1000,
   useProxy: false,      // Poll local proxy server for events
-  autoPauseHours: 3     // Auto-pause after X hours of inactivity (0 = disabled)
+  autoPauseHours: 3,    // Auto-pause after X hours of inactivity (0 = disabled)
+  detectNewSources: true // Auto-detect new analytics sources
 };
 
 // Track last event activity time (in-memory, resets on extension reload)
@@ -123,6 +124,7 @@ function startProxyPolling() {
         data.unmatchedDomains.forEach(unmatched => {
           configManager.mergeUnmatchedDomain(unmatched);
         });
+        notifyPanels('unmatchedDomainsUpdated', {});
       }
     } catch (err) {
       if (pollCount === 1) { // Only log on first attempt
@@ -160,11 +162,12 @@ chrome.webRequest.onBeforeRequest.addListener(
     const source = configManager.findSourceForUrl(details.url);
 
     if (!source) {
-      // Track unmatched analytics requests for suggestions
-      if (looksLikeAnalyticsEndpoint(details.url) && details.requestBody) {
+      // Track unmatched analytics requests for suggestions (if enabled)
+      if (settings.detectNewSources && looksLikeAnalyticsEndpoint(details.url) && details.requestBody) {
         try {
           const payload = AnalyticsParser.decodeRequestBody(details.requestBody);
           configManager.trackUnmatchedRequest(details.url, payload);
+          notifyPanels('unmatchedDomainsUpdated', {});
         } catch {
           // Ignore parsing errors
         }
