@@ -9,7 +9,7 @@ class AnalyticsLoggerUI {
     this.filteredEvents = [];
     this.filters = {
       search: '',
-      parser: '',
+      source: '',
       eventType: ''
     };
     this.port = null;
@@ -29,11 +29,14 @@ class AnalyticsLoggerUI {
       eventsList: document.getElementById('eventsList'),
       emptyState: document.getElementById('emptyState'),
       searchInput: document.getElementById('searchInput'),
-      parserFilter: document.getElementById('parserFilter'),
+      sourceFilter: document.getElementById('sourceFilter'),
       eventTypeFilter: document.getElementById('eventTypeFilter'),
       clearFiltersBtn: document.getElementById('clearFiltersBtn'),
+      // Pending sources notification
+      pendingNotification: document.getElementById('pendingNotification'),
+      pendingCount: document.getElementById('pendingCount'),
+      viewPendingBtn: document.getElementById('viewPendingBtn'),
       clearBtn: document.getElementById('clearBtn'),
-      refreshBtn: document.getElementById('refreshBtn'),
       exportJSONBtn: document.getElementById('exportJSONBtn'),
       exportCSVBtn: document.getElementById('exportCSVBtn'),
       settingsBtn: document.getElementById('settingsBtn'),
@@ -67,6 +70,7 @@ class AnalyticsLoggerUI {
 
     // Pause/Play state
     this.isPaused = false;
+    this.isAutoPaused = false; // Track if paused due to inactivity
 
     // Set up event listeners
     this.setupEventListeners();
@@ -83,7 +87,31 @@ class AnalyticsLoggerUI {
     // Check if native messaging host is available
     this.checkNativeHost();
 
+    // Load sources for filter dropdown
+    await this.loadSourcesFilter();
+
+    // Check if we're in auto-paused state
+    await this.checkAutoPauseState();
+
+    // Check for unmatched domain suggestions periodically
+    this.checkForSuggestions();
+    setInterval(() => this.checkForSuggestions(), 10000);
+
     console.log('[Panel] Initialized');
+  }
+
+  async checkAutoPauseState() {
+    try {
+      const response = await chrome.runtime.sendMessage({ action: 'getSettings' });
+      if (response.success && response.autoPaused) {
+        this.isPaused = true;
+        this.isAutoPaused = true;
+        this.updatePauseButton();
+        console.log('[Panel] Restored auto-paused state');
+      }
+    } catch (err) {
+      // Silently fail
+    }
   }
 
   async loadConfirmPrefs() {
@@ -146,9 +174,15 @@ class AnalyticsLoggerUI {
       this.applyFilters();
     });
 
-    this.elements.parserFilter.addEventListener('change', (e) => {
-      this.filters.parser = e.target.value;
+    this.elements.sourceFilter.addEventListener('change', (e) => {
+      this.filters.source = e.target.value;
       this.applyFilters();
+    });
+
+    // Pending sources notification - click to open Sources tab
+    this.elements.viewPendingBtn?.addEventListener('click', () => {
+      this.sourceManager.switchTab('sources');
+      this.openSettings(); // Opens the settings modal which contains Sources tab
     });
 
     this.elements.eventTypeFilter.addEventListener('change', (e) => {
@@ -163,10 +197,6 @@ class AnalyticsLoggerUI {
     // Actions
     this.elements.clearBtn.addEventListener('click', () => {
       this.clearEvents();
-    });
-
-    this.elements.refreshBtn.addEventListener('click', () => {
-      this.loadEvents();
     });
 
     this.elements.exportJSONBtn.addEventListener('click', () => {
@@ -469,6 +499,7 @@ class AnalyticsLoggerUI {
         // New events added
         this.events.unshift(...message.data);
         this.updateEventTypeFilter();
+        this.updateSourcesFilter();
         this.applyFilters();
         this.updateStats(); // Update stats to reflect new total count
       } else if (message.action === 'eventsCleared') {
@@ -476,9 +507,16 @@ class AnalyticsLoggerUI {
         this.events = [];
         this.filteredEvents = [];
         this.updateEventTypeFilter();
+        this.updateSourcesFilter();
         this.applyFilters();
         this.updateStats();
         console.log('[Panel] Events cleared by background');
+      } else if (message.action === 'autoPaused') {
+        // Auto-paused due to inactivity
+        console.log('[Panel] Auto-paused after', message.data.hours, 'hour(s) of inactivity');
+        this.isPaused = true;
+        this.isAutoPaused = true;
+        this.updatePauseButton();
       }
     });
 
@@ -489,17 +527,37 @@ class AnalyticsLoggerUI {
     });
   }
 
-  togglePause() {
+  async togglePause() {
     this.isPaused = !this.isPaused;
+
+    // If resuming from auto-pause, re-enable event capture in background
+    if (!this.isPaused && this.isAutoPaused) {
+      this.isAutoPaused = false;
+      try {
+        await chrome.runtime.sendMessage({
+          action: 'updateSettings',
+          settings: { enabled: true }
+        });
+        console.log('[Panel] Resumed from auto-pause, re-enabled event capture');
+      } catch (err) {
+        console.error('[Panel] Error re-enabling capture:', err);
+      }
+    }
+
     this.updatePauseButton();
     console.log('[Panel] Event collection', this.isPaused ? 'paused' : 'resumed');
   }
 
   updatePauseButton() {
     if (this.isPaused) {
-      this.elements.pauseBtn.innerHTML = '▶️ Resume';
+      if (this.isAutoPaused) {
+        this.elements.pauseBtn.innerHTML = '▶️ Auto-Paused';
+        this.elements.pauseBtn.title = 'Auto-paused due to inactivity. Click to resume.';
+      } else {
+        this.elements.pauseBtn.innerHTML = '▶️ Resume';
+        this.elements.pauseBtn.title = 'Resume event collection';
+      }
       this.elements.pauseBtn.classList.add('paused');
-      this.elements.pauseBtn.title = 'Resume event collection';
     } else {
       this.elements.pauseBtn.innerHTML = '⏸️ Pause';
       this.elements.pauseBtn.classList.remove('paused');
@@ -514,6 +572,7 @@ class AnalyticsLoggerUI {
       if (response.success) {
         this.events = response.events;
         this.updateEventTypeFilter();
+        this.updateSourcesFilter();
         this.applyFilters();
         console.log('[Panel] Loaded events:', this.events.length);
       }
@@ -581,8 +640,8 @@ class AnalyticsLoggerUI {
         }
       }
 
-      // Parser filter
-      if (this.filters.parser && event._parser !== this.filters.parser) {
+      // Source filter
+      if (this.filters.source && event._source !== this.filters.source) {
         return false;
       }
 
@@ -598,9 +657,9 @@ class AnalyticsLoggerUI {
   }
 
   clearFilters() {
-    this.filters = { search: '', parser: '', eventType: '' };
+    this.filters = { search: '', source: '', eventType: '' };
     this.elements.searchInput.value = '';
-    this.elements.parserFilter.value = '';
+    this.elements.sourceFilter.value = '';
     this.elements.eventTypeFilter.value = '';
     this.applyFilters();
   }
@@ -760,14 +819,17 @@ class AnalyticsLoggerUI {
 
   renderEventCard(event) {
     const timestamp = new Date(event.timestamp).toLocaleString();
-    const parser = event._parser || 'unknown';
+    const sourceName = event._sourceName || 'Unknown';
+    const sourceColor = event._sourceColor || '#6366F1';
     const eventId = event.id || `event-${Math.random().toString(36).substr(2, 9)}`;
 
     return `
       <div class="event-card" data-id="${eventId}">
         <div class="event-header">
           <div class="event-name">${this.escapeHtml(event.event || 'Unknown Event')}</div>
-          <span class="event-badge ${parser}">${parser}</span>
+          <span class="event-badge" style="background: ${sourceColor}20; color: ${sourceColor}; border: 1px solid ${sourceColor}40;">
+            ${this.escapeHtml(sourceName)}
+          </span>
           <span class="event-expand-icon">▼</span>
         </div>
         <div class="event-meta">
@@ -1122,6 +1184,7 @@ class AnalyticsLoggerUI {
         this.events = [];
         this.filteredEvents = [];
         this.updateEventTypeFilter(); // Clear the event type dropdown
+        this.updateSourcesFilter(); // Clear the source dropdown
         this.applyFilters();
         this.updateStats();
         console.log('[Panel] Events cleared');
@@ -1178,7 +1241,7 @@ class AnalyticsLoggerUI {
     const filters = {};
 
     if (this.filters.search) filters.search = this.filters.search;
-    if (this.filters.parser) filters.parser = this.filters.parser;
+    if (this.filters.source) filters.source = this.filters.source;
     if (this.filters.eventType) filters.event = this.filters.eventType;
 
     return filters;
@@ -1195,11 +1258,7 @@ class AnalyticsLoggerUI {
         document.getElementById('enabledSetting').checked = settings.enabled;
         document.getElementById('persistSetting').checked = settings.persistEvents;
         document.getElementById('maxEventsSetting').value = settings.maxEvents;
-        // useProxySetting is now automatic - handled by Start/Stop Proxy buttons
-        document.getElementById('captureSegmentSetting').checked = settings.captureSegment;
-        document.getElementById('captureGASetting').checked = settings.captureGA;
-        document.getElementById('captureGraphQLSetting').checked = settings.captureGraphQL;
-        document.getElementById('captureCustomSetting').checked = settings.captureCustom;
+        document.getElementById('autoPauseHoursSetting').value = settings.autoPauseHours || 3;
 
         // Initialize proxy UI
         this.updateProxyUI();
@@ -1221,11 +1280,7 @@ class AnalyticsLoggerUI {
       enabled: document.getElementById('enabledSetting').checked,
       persistEvents: document.getElementById('persistSetting').checked,
       maxEvents: parseInt(document.getElementById('maxEventsSetting').value),
-      // useProxy is now controlled by Start/Stop Proxy buttons - don't override it here
-      captureSegment: document.getElementById('captureSegmentSetting').checked,
-      captureGA: document.getElementById('captureGASetting').checked,
-      captureGraphQL: document.getElementById('captureGraphQLSetting').checked,
-      captureCustom: document.getElementById('captureCustomSetting').checked
+      autoPauseHours: parseInt(document.getElementById('autoPauseHoursSetting').value)
     };
 
     try {
@@ -1264,6 +1319,88 @@ class AnalyticsLoggerUI {
         document.body.removeChild(popup);
       }, 300);
     }, 1000);
+  }
+
+  /**
+   * Update source filter dropdown based on sources present in current events
+   */
+  updateSourcesFilter() {
+    if (!this.elements.sourceFilter) return;
+
+    // Collect unique sources from current events
+    const sourcesInEvents = new Map();
+    this.events.forEach(event => {
+      if (event._source && !sourcesInEvents.has(event._source)) {
+        sourcesInEvents.set(event._source, {
+          id: event._source,
+          name: event._sourceName || event._source
+        });
+      }
+    });
+
+    const currentValue = this.elements.sourceFilter.value;
+    this.elements.sourceFilter.innerHTML = '<option value="">All Sources</option>';
+
+    // Sort by name and add to dropdown
+    Array.from(sourcesInEvents.values())
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .forEach(source => {
+        const option = document.createElement('option');
+        option.value = source.id;
+        option.textContent = source.name;
+        this.elements.sourceFilter.appendChild(option);
+      });
+
+    // Restore selected value if it still exists in the new list
+    if (currentValue && sourcesInEvents.has(currentValue)) {
+      this.elements.sourceFilter.value = currentValue;
+    } else if (currentValue) {
+      // Selected source no longer has events, clear the filter
+      this.filters.source = '';
+    }
+  }
+
+  /**
+   * Load sources for the filter dropdown (kept for backwards compatibility)
+   */
+  async loadSourcesFilter() {
+    this.updateSourcesFilter();
+  }
+
+  /**
+   * Check for pending sources and show notification
+   */
+  async checkForSuggestions() {
+    try {
+      const response = await chrome.runtime.sendMessage({ action: 'getUnmatchedDomains' });
+
+      if (response.success && response.domains.length > 0) {
+        this.showPendingNotification(response.domains.length);
+      } else {
+        this.hidePendingNotification();
+      }
+    } catch (err) {
+      // Silently fail
+    }
+  }
+
+  /**
+   * Show the pending sources notification with count
+   */
+  showPendingNotification(count) {
+    if (this.elements.pendingNotification && this.elements.pendingCount) {
+      this.elements.pendingCount.textContent = count;
+      this.elements.pendingNotification.style.display = 'flex';
+    }
+  }
+
+  /**
+   * Hide the pending sources notification
+   */
+  hidePendingNotification() {
+    if (this.elements.pendingNotification) {
+      this.elements.pendingNotification.style.display = 'none';
+    }
   }
 }
 
