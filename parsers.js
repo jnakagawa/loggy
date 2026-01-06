@@ -303,11 +303,29 @@ export class AnalyticsParser {
       return formData;
     }
 
-    // Handle raw data
-    if (requestBody.raw && requestBody.raw[0] && requestBody.raw[0].bytes) {
-      const bytes = requestBody.raw[0].bytes;
+    // Handle raw data - concatenate ALL chunks (Chrome splits large payloads)
+    if (requestBody.raw && requestBody.raw.length > 0) {
+      // Calculate total size and allocate buffer
+      let totalLength = 0;
+      const chunks = [];
+      for (const chunk of requestBody.raw) {
+        if (chunk.bytes) {
+          const arr = new Uint8Array(chunk.bytes);
+          chunks.push(arr);
+          totalLength += arr.length;
+        }
+      }
+
+      // Concatenate all chunks into single buffer
+      const allBytes = new Uint8Array(totalLength);
+      let offset = 0;
+      for (const chunk of chunks) {
+        allBytes.set(chunk, offset);
+        offset += chunk.length;
+      }
+
       const decoder = new TextDecoder('utf-8');
-      const text = decoder.decode(new Uint8Array(bytes));
+      const text = decoder.decode(allBytes);
 
       // Try to parse as JSON
       try {
