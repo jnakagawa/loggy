@@ -70,7 +70,7 @@ cat > "$MANIFEST_DEST" << EOF
 {
   "name": "com.analytics_logger.proxy",
   "description": "Analytics Logger Proxy Control",
-  "path": "$SCRIPT_DIR/native-host/proxy-host.js",
+  "path": "$SCRIPT_DIR/native-host/proxy-host.cjs",
   "type": "stdio",
   "allowed_origins": [
     "chrome-extension://$EXTENSION_ID/"
@@ -79,7 +79,7 @@ cat > "$MANIFEST_DEST" << EOF
 EOF
 
 # Make proxy host executable
-chmod +x "native-host/proxy-host.js"
+chmod +x "native-host/proxy-host.cjs"
 
 echo "✅ Native messaging host installed!"
 echo ""

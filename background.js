@@ -5,6 +5,7 @@ import { AnalyticsParser } from './parsers.js';
 import { EventStorage } from './storage.js';
 import { ConfigManager } from './config/config-manager.js';
 import { SourceConfig } from './config/source-config.js';
+import { looksLikeAnalyticsEndpoint } from './config/default-sources.js';
 
 // Initialize storage
 const storage = new EventStorage(1000);
@@ -21,8 +22,14 @@ let settings = {
   captureCustom: true,
   persistEvents: false,
   maxEvents: 1000,
-  useProxy: false      // Poll local proxy server for events
+  useProxy: false,      // Poll local proxy server for events
+  autoPauseHours: 3,    // Auto-pause after X hours of inactivity (0 = disabled)
+  detectNewSources: true // Auto-detect new analytics sources
 };
+
+// Track last event activity time (in-memory, resets on extension reload)
+let lastEventTime = Date.now();
+let autoPaused = false; // Track if we auto-paused (vs manual pause)
 
 // Load settings on startup and then register listener
 async function initialize() {
@@ -34,12 +41,17 @@ async function initialize() {
   console.log('[Analytics Logger] Loaded', configStats.totalSources, 'analytics sources');
 
   // Load settings first
-  const result = await chrome.storage.local.get('settings');
+  const result = await chrome.storage.local.get(['settings', 'autoPaused']);
   if (result.settings) {
     settings = { ...settings, ...result.settings };
     console.log('[Analytics Logger] Loaded settings:', settings);
   } else {
     console.log('[Analytics Logger] Using default settings:', settings);
+  }
+
+  // Restore auto-pause state (survives service worker restarts)
+  if (result.autoPaused !== undefined) {
+    autoPaused = result.autoPaused;
   }
 
   // Load persisted events if enabled
@@ -61,7 +73,7 @@ async function initialize() {
 // Proxy Mode - Poll local proxy server for captured events
 let proxyPollingInterval = null;
 const PROXY_URL = 'http://localhost:8889/events';
-const PROXY_POLL_INTERVAL = 2000; // 2 seconds
+const PROXY_POLL_INTERVAL = 5000; // 5 seconds
 
 function startProxyPolling() {
   if (proxyPollingInterval) return;
@@ -73,6 +85,11 @@ function startProxyPolling() {
   let pollCount = 0;
 
   proxyPollingInterval = setInterval(async () => {
+    // Only poll if there's at least one panel connected
+    if (connectedPanels.size === 0) {
+      return;
+    }
+
     pollCount++;
 
     try {
@@ -102,7 +119,22 @@ function startProxyPolling() {
           newEvents.forEach(e => console.log(`[Analytics Logger] [Proxy]   - ${e.event} (${e._parser})`));
           storage.addEvents(newEvents);
           notifyPanels('eventsAdded', newEvents);
+
+          // Update last event time for auto-pause feature
+          lastEventTime = Date.now();
+          if (autoPaused) {
+            autoPaused = false;
+            console.log('[Analytics Logger] Auto-resumed due to new proxy activity');
+          }
         }
+      }
+
+      // Merge proxy's unmatched domains into extension's configManager
+      if (data.unmatchedDomains && data.unmatchedDomains.length > 0) {
+        data.unmatchedDomains.forEach(unmatched => {
+          configManager.mergeUnmatchedDomain(unmatched);
+        });
+        notifyPanels('unmatchedDomainsUpdated', {});
       }
     } catch (err) {
       if (pollCount === 1) { // Only log on first attempt
@@ -136,25 +168,53 @@ chrome.webRequest.onBeforeRequest.addListener(
       return;
     }
 
+    // Debug: Log Airbnb requests
+    if (details.url.includes('airbnb')) {
+      console.log('[Analytics Logger] [DEBUG] Airbnb request:', details.url);
+      console.log('[Analytics Logger] [DEBUG] Has requestBody:', !!details.requestBody);
+      if (details.requestBody) {
+        console.log('[Analytics Logger] [DEBUG] requestBody keys:', Object.keys(details.requestBody));
+        if (details.requestBody.raw) {
+          console.log('[Analytics Logger] [DEBUG] raw chunks:', details.requestBody.raw.length);
+          details.requestBody.raw.forEach((chunk, i) => {
+            console.log(`[Analytics Logger] [DEBUG] chunk ${i} has bytes:`, !!chunk.bytes, chunk.bytes ? chunk.bytes.byteLength : 0);
+          });
+        }
+      }
+    }
+
     // Find matching source using ConfigManager
     const source = configManager.findSourceForUrl(details.url);
 
+    // Debug: Log source matching for Airbnb
+    if (details.url.includes('airbnb')) {
+      console.log('[Analytics Logger] [DEBUG] Source match result:', source ? source.name : 'NO MATCH');
+    }
+
     if (!source) {
-      // No source matched, skip silently
+      // Track unmatched analytics requests for suggestions (if enabled)
+      if (settings.detectNewSources && looksLikeAnalyticsEndpoint(details.url) && details.requestBody) {
+        AnalyticsParser.decodeRequestBodyAsync(details.requestBody).then(payload => {
+          if (payload) {
+            configManager.trackUnmatchedRequest(details.url, payload);
+            notifyPanels('unmatchedDomainsUpdated', {});
+          }
+        }).catch(() => {
+          // Ignore parsing errors
+        });
+      }
       return;
     }
 
     console.log(`[Analytics Logger] ✅ Matched source "${source.name}" for:`, details.url);
 
-    // Parse the request using the source's parser
-    try {
-      const events = AnalyticsParser.parseRequest(
-        details.url,
-        details.requestBody,
-        details.initiator,
-        source
-      );
-
+    // Parse the request using the source's parser (async for decompression)
+    AnalyticsParser.parseRequest(
+      details.url,
+      details.requestBody,
+      details.initiator,
+      source
+    ).then(events => {
       if (events.length > 0) {
         console.log(`[Analytics Logger] ✓ Captured ${events.length} event(s) from ${source.name}`);
 
@@ -167,6 +227,14 @@ chrome.webRequest.onBeforeRequest.addListener(
         });
 
         storage.addEvents(events);
+
+        // Update last event time for auto-pause feature
+        lastEventTime = Date.now();
+        if (autoPaused) {
+          // Auto-resume if we were auto-paused and new events arrived
+          autoPaused = false;
+          console.log('[Analytics Logger] Auto-resumed due to new activity');
+        }
 
         // Update source statistics
         source.recordCapture();
@@ -182,13 +250,13 @@ chrome.webRequest.onBeforeRequest.addListener(
       } else {
         console.log('[Analytics Logger] No events extracted from request');
       }
-    } catch (err) {
+    }).catch(err => {
       console.error('[Analytics Logger] Error parsing request:', err);
       console.error('[Analytics Logger] Request details:', {
         url: details.url,
         source: source.name
       });
-    }
+    });
   },
   {
     urls: ['<all_urls>']
@@ -223,6 +291,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     storage.addEvents([event]);
     notifyPanels('eventsAdded', [event]);
+
+    // Update last event time for auto-pause feature
+    lastEventTime = Date.now();
+    if (autoPaused) {
+      autoPaused = false;
+      console.log('[Analytics Logger] Auto-resumed due to new direct message activity');
+    }
 
     sendResponse({ success: true });
     return false;
@@ -288,7 +363,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'getSettings':
       sendResponse({
         success: true,
-        settings: settings
+        settings: settings,
+        autoPaused: autoPaused,
+        lastEventTime: lastEventTime
       });
       break;
 
@@ -297,6 +374,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       settings = { ...settings, ...message.settings };
       chrome.storage.local.set({ settings });
       storage.setMaxSize(settings.maxEvents);
+
+      // Reset auto-pause state if user manually re-enables capture
+      if (message.settings.enabled === true && autoPaused) {
+        autoPaused = false;
+        lastEventTime = Date.now(); // Reset the inactivity timer
+        console.log('[Analytics Logger] Manual resume - reset auto-pause state');
+      }
 
       // Handle proxy mode changes
       if (settings.useProxy && !oldUseProxy) {
@@ -386,13 +470,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
       return true;
 
-    case 'createSourceFromSample':
-      const newSource = configManager.createFromSample(message.url, message.payload);
+    case 'createSourceFromDomain':
+      const newSource = configManager.createFromDomain(message.domain, message.payload);
       if (newSource) {
         sendResponse({ success: true, source: newSource.toJSON() });
       } else {
-        sendResponse({ success: false, error: 'Failed to create source from sample' });
+        sendResponse({ success: false, error: 'Failed to create source from domain' });
       }
+      break;
+
+    case 'getUnmatchedDomains':
+      sendResponse({
+        success: true,
+        domains: configManager.getUnmatchedDomains()
+      });
+      break;
+
+    case 'clearUnmatchedDomain':
+      configManager.clearUnmatchedDomain(message.domain);
+      sendResponse({ success: true });
+      break;
+
+    case 'detectFields':
+      // Use parser to detect fields from payload
+      const detection = AnalyticsParser.detectFields(message.payload);
+      sendResponse({
+        success: detection.success,
+        ...detection
+      });
       break;
 
     default:
@@ -409,6 +514,17 @@ chrome.runtime.onConnect.addListener((port) => {
   if (port.name === 'analytics-logger-panel') {
     console.log('[Analytics Logger] Panel connected');
     connectedPanels.add(port);
+
+    // Auto-resume if we were auto-paused (user opening panel = intent to use)
+    if (autoPaused && !settings.enabled) {
+      autoPaused = false;
+      settings.enabled = true;
+      lastEventTime = Date.now();
+      chrome.storage.local.set({ settings, autoPaused });
+      console.log('[Analytics Logger] Auto-resumed on panel open (was auto-paused)');
+      // Notify the panel so it can update UI
+      port.postMessage({ action: 'autoResumed', data: {} });
+    }
 
     port.onDisconnect.addListener(() => {
       console.log('[Analytics Logger] Panel disconnected');
@@ -440,5 +556,68 @@ setInterval(() => {
     storage.saveToStorage();
   }
 }, 60000); // Every minute
+
+// Stop proxy server via native messaging
+function stopProxyServer() {
+  try {
+    const port = chrome.runtime.connectNative('com.analytics_logger.proxy');
+
+    port.postMessage({ action: 'stopProxy' });
+
+    port.onMessage.addListener((response) => {
+      if (response.success) {
+        console.log('[Analytics Logger] Proxy server stopped');
+        settings.useProxy = false;
+        chrome.storage.local.set({ settings });
+        stopProxyPolling();
+      } else {
+        console.log('[Analytics Logger] Failed to stop proxy:', response.error);
+      }
+      port.disconnect();
+    });
+
+    port.onDisconnect.addListener(() => {
+      // Native host not available - just disable polling
+      if (chrome.runtime.lastError) {
+        console.log('[Analytics Logger] Native host not available, disabling proxy polling');
+        settings.useProxy = false;
+        chrome.storage.local.set({ settings });
+        stopProxyPolling();
+      }
+    });
+  } catch (err) {
+    console.log('[Analytics Logger] Error stopping proxy:', err.message);
+    settings.useProxy = false;
+    chrome.storage.local.set({ settings });
+    stopProxyPolling();
+  }
+}
+
+// Periodic auto-pause check (every 5 minutes)
+setInterval(() => {
+  if (settings.autoPauseHours > 0 && settings.enabled && !autoPaused) {
+    const hoursSinceLastEvent = (Date.now() - lastEventTime) / (1000 * 60 * 60);
+
+    if (hoursSinceLastEvent >= settings.autoPauseHours) {
+      autoPaused = true;
+      settings.enabled = false;
+      chrome.storage.local.set({ settings, autoPaused });
+
+      console.log(`[Analytics Logger] Auto-paused after ${settings.autoPauseHours} hour(s) of inactivity`);
+
+      // Stop proxy server if it was running
+      if (settings.useProxy) {
+        console.log('[Analytics Logger] Stopping proxy server due to auto-pause');
+        stopProxyServer();
+      }
+
+      // Notify open panels
+      notifyPanels('autoPaused', {
+        hours: settings.autoPauseHours,
+        lastEventTime: lastEventTime
+      });
+    }
+  }
+}, 300000); // Every 5 minutes
 
 console.log('[Analytics Logger] Background service worker initialized');

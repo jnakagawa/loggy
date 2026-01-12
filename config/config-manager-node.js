@@ -3,165 +3,28 @@
  *
  * This is a simplified version of ConfigManager that works in Node.js
  * environment, using file system for storage instead of chrome.storage.
+ * Uses domain-based matching like the browser version.
  */
 
-const fs = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { SourceConfig } from './source-config.js';
+import { DEFAULT_SOURCES, looksLikeAnalyticsEndpoint } from './default-sources.js';
 
-// Import source config and defaults (need to convert to CommonJS)
-// For now, we'll inline the necessary parts
-class SourceConfig {
-  constructor(id, config = {}) {
-    this.id = id;
-    this.name = config.name || id;
-    this.enabled = config.enabled ?? true;
-    this.color = config.color || '#6366F1';
-    this.icon = config.icon || '📊';
-    this.urlPatterns = config.urlPatterns || [];
-    this.fieldMappings = config.fieldMappings || {};
-    this.parser = config.parser || 'generic';
-    this.stats = config.stats || { eventsCapture: 0 };
-  }
+// ES6 module equivalent of __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-  matches(url) {
-    if (!this.enabled) return false;
-    return this.urlPatterns.some(p => this.matchPattern(url, p));
-  }
-
-  matchPattern(url, pattern) {
-    try {
-      switch (pattern.type) {
-        case 'contains':
-          return url.toLowerCase().includes(pattern.pattern.toLowerCase());
-        case 'regex':
-          return new RegExp(pattern.pattern, 'i').test(url);
-        case 'exact':
-          return url === pattern.pattern;
-        default:
-          return false;
-      }
-    } catch (err) {
-      return false;
-    }
-  }
-
-  extractFields(payload) {
-    const extracted = {};
-
-    for (const [field, paths] of Object.entries(this.fieldMappings)) {
-      if (field === 'properties' && paths === 'all') {
-        extracted.properties = { ...payload };
-        continue;
-      }
-
-      if (Array.isArray(paths)) {
-        for (const pathStr of paths) {
-          const value = this.getNestedValue(payload, pathStr);
-          if (value !== undefined && value !== null) {
-            extracted[field] = value;
-            break;
-          }
-        }
-      } else if (typeof paths === 'string') {
-        const value = this.getNestedValue(payload, paths);
-        if (value !== undefined && value !== null) {
-          extracted[field] = value;
-        }
-      }
-    }
-
-    return extracted;
-  }
-
-  getNestedValue(obj, path) {
-    return path.split('.').reduce((current, key) => {
-      return current?.[key];
-    }, obj);
-  }
-
-  recordCapture() {
-    this.stats.eventsCapture++;
-    this.stats.lastCaptured = new Date().toISOString();
-  }
-
-  toJSON() {
-    return {
-      id: this.id,
-      name: this.name,
-      enabled: this.enabled,
-      color: this.color,
-      icon: this.icon,
-      urlPatterns: this.urlPatterns,
-      fieldMappings: this.fieldMappings,
-      parser: this.parser,
-      stats: this.stats
-    };
-  }
-}
-
-// Default sources (same as default-sources.js but in CommonJS)
-const DEFAULT_SOURCES = {
-  'reddit': {
-    name: 'Reddit',
-    color: '#FF4500',
-    icon: '🔵',
-    enabled: true,
-    urlPatterns: [
-      { pattern: 'reddit.com/events', type: 'contains' },
-      { pattern: 'reddit.com/svc/shreddit/events', type: 'contains' }
-    ],
-    fieldMappings: {
-      eventName: ['action', 'event', 'noun'],
-      timestamp: ['client_timestamp', 'timestamp'],
-      userId: ['user_id'],
-      properties: 'all'
-    },
-    parser: 'reddit'
-  },
-  'segment': {
-    name: 'Segment',
-    color: '#52BD95',
-    icon: '📊',
-    enabled: true,
-    urlPatterns: [
-      { pattern: 'segment.io/v1/', type: 'contains' },
-      { pattern: 'segment.com/v1/', type: 'contains' },
-      { pattern: '/v1/batch', type: 'contains' }
-    ],
-    parser: 'segment'
-  },
-  'pie': {
-    name: 'Pie',
-    color: '#FF6B6B',
-    icon: '🥧',
-    enabled: true,
-    urlPatterns: [
-      { pattern: 'pie.org/v1/batch', type: 'contains' },
-      { pattern: 'pie-staging.org/v1/batch', type: 'contains' }
-    ],
-    parser: 'segment'
-  }
-};
-
-const FALLBACK_CONFIG = {
-  name: 'Generic Analytics',
-  enabled: true,
-  urlPatterns: [
-    { pattern: '/analytics', type: 'contains' },
-    { pattern: '/events', type: 'contains' },
-    { pattern: '/evs', type: 'contains' },
-    { pattern: '/track', type: 'contains' },
-    { pattern: '/collect', type: 'contains' }
-  ],
-  parser: 'generic'
-};
-
-class ConfigManagerNode {
+/**
+ * ConfigManager for Node.js environment
+ */
+export class ConfigManagerNode {
   constructor(configPath = null) {
     this.sources = new Map();
-    this.fallback = null;
     this.configPath = configPath || path.join(__dirname, 'proxy-sources.json');
     this.loaded = false;
+    this.unmatchedDomains = new Map();
   }
 
   load() {
@@ -171,8 +34,6 @@ class ConfigManagerNode {
     for (const [id, config] of Object.entries(DEFAULT_SOURCES)) {
       this.sources.set(id, new SourceConfig(id, config));
     }
-
-    this.fallback = new SourceConfig('fallback', FALLBACK_CONFIG);
 
     // Load user config from file if it exists
     try {
@@ -209,23 +70,74 @@ class ConfigManagerNode {
     }
   }
 
+  /**
+   * Find source for URL using domain matching
+   */
   findSourceForUrl(url) {
     for (const [id, source] of this.sources) {
       if (source.enabled && source.matches(url)) {
         return source;
       }
     }
-
-    if (this.fallback && this.fallback.enabled && this.fallback.matches(url)) {
-      return this.fallback;
-    }
-
     return null;
+  }
+
+  /**
+   * Find source by domain
+   */
+  findSourceByDomain(domain) {
+    const normalizedDomain = domain.toLowerCase();
+    for (const [id, source] of this.sources) {
+      if (source.domain.toLowerCase() === normalizedDomain) {
+        return source;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Track unmatched analytics request
+   */
+  trackUnmatchedRequest(url, payload) {
+    if (!looksLikeAnalyticsEndpoint(url)) return;
+
+    const domain = SourceConfig.extractBaseDomainFromUrl(url);
+    if (!domain || this.findSourceByDomain(domain)) return;
+
+    const existing = this.unmatchedDomains.get(domain);
+    if (existing) {
+      existing.count++;
+      existing.lastSeen = Date.now();
+      if (payload) existing.payload = payload;
+    } else {
+      this.unmatchedDomains.set(domain, {
+        domain,
+        url,
+        payload,
+        count: 1,
+        firstSeen: Date.now(),
+        lastSeen: Date.now()
+      });
+    }
+  }
+
+  getUnmatchedDomains() {
+    return Array.from(this.unmatchedDomains.values())
+      .sort((a, b) => b.count - a.count);
   }
 
   getAllSources() {
     return Array.from(this.sources.values());
   }
+
+  addSource(source) {
+    this.sources.set(source.id, source);
+    if (source.domain) {
+      this.unmatchedDomains.delete(source.domain);
+    }
+    this.save();
+  }
 }
 
-module.exports = { ConfigManagerNode, SourceConfig };
+// Re-export for convenience
+export { SourceConfig, looksLikeAnalyticsEndpoint };

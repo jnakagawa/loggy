@@ -9,7 +9,7 @@ class AnalyticsLoggerUI {
     this.filteredEvents = [];
     this.filters = {
       search: '',
-      parser: '',
+      source: '',
       eventType: ''
     };
     this.port = null;
@@ -27,13 +27,17 @@ class AnalyticsLoggerUI {
     // Get DOM elements
     this.elements = {
       eventsList: document.getElementById('eventsList'),
+      eventsContainer: document.querySelector('.events-container'),
       emptyState: document.getElementById('emptyState'),
       searchInput: document.getElementById('searchInput'),
-      parserFilter: document.getElementById('parserFilter'),
+      sourceFilter: document.getElementById('sourceFilter'),
       eventTypeFilter: document.getElementById('eventTypeFilter'),
       clearFiltersBtn: document.getElementById('clearFiltersBtn'),
+      // Pending sources notification
+      pendingNotification: document.getElementById('pendingNotification'),
+      pendingCount: document.getElementById('pendingCount'),
+      viewPendingBtn: document.getElementById('viewPendingBtn'),
       clearBtn: document.getElementById('clearBtn'),
-      refreshBtn: document.getElementById('refreshBtn'),
       exportJSONBtn: document.getElementById('exportJSONBtn'),
       exportCSVBtn: document.getElementById('exportCSVBtn'),
       settingsBtn: document.getElementById('settingsBtn'),
@@ -48,6 +52,11 @@ class AnalyticsLoggerUI {
       // Main view proxy controls
       proxyStatusMain: document.getElementById('proxyStatusMain'),
       proxyActionBtn: document.getElementById('proxyActionBtn'),
+      // Proxy suggestion banner (shown when Chrome API can't read request bodies)
+      proxySuggestionBanner: document.getElementById('proxySuggestionBanner'),
+      proxyNeededSource: document.getElementById('proxyNeededSource'),
+      startProxyFromBanner: document.getElementById('startProxyFromBanner'),
+      dismissProxyBanner: document.getElementById('dismissProxyBanner'),
       // Confirm modal
       confirmModal: document.getElementById('confirmModal'),
       confirmTitle: document.getElementById('confirmTitle'),
@@ -67,6 +76,10 @@ class AnalyticsLoggerUI {
 
     // Pause/Play state
     this.isPaused = false;
+    this.isAutoPaused = false; // Track if paused due to inactivity
+
+    // UI state preservation (survives re-renders)
+    this.viewModeState = new Map(); // eventId -> 'raw' | 'structured'
 
     // Set up event listeners
     this.setupEventListeners();
@@ -83,7 +96,50 @@ class AnalyticsLoggerUI {
     // Check if native messaging host is available
     this.checkNativeHost();
 
+    // Check if proxy server is actually running (ping it)
+    await this.checkProxyRunning();
+
+    // Load sources for filter dropdown
+    await this.loadSourcesFilter();
+
+    // Check if we're in auto-paused state
+    await this.checkAutoPauseState();
+
+    // Check for unmatched domain suggestions periodically
+    this.checkForSuggestions();
+    setInterval(() => this.checkForSuggestions(), 10000);
+
     console.log('[Panel] Initialized');
+  }
+
+  async checkAutoPauseState() {
+    try {
+      const response = await chrome.runtime.sendMessage({ action: 'getSettings' });
+      if (response.success) {
+        // Sync panel state with actual extension enabled state
+        if (!response.settings.enabled) {
+          if (response.autoPaused) {
+            // Was auto-paused - will be auto-resumed by background on connect
+            this.isPaused = true;
+            this.isAutoPaused = true;
+            console.log('[Panel] Extension was auto-paused');
+          } else {
+            // Extension is disabled but not auto-paused (manual or stale state)
+            // Auto-enable since user opened the panel (intent to use)
+            console.log('[Panel] Extension disabled, auto-enabling on panel open');
+            await chrome.runtime.sendMessage({
+              action: 'updateSettings',
+              settings: { enabled: true }
+            });
+            this.isPaused = false;
+            this.isAutoPaused = false;
+          }
+          this.updatePauseButton();
+        }
+      }
+    } catch (err) {
+      // Silently fail
+    }
   }
 
   async loadConfirmPrefs() {
@@ -146,9 +202,26 @@ class AnalyticsLoggerUI {
       this.applyFilters();
     });
 
-    this.elements.parserFilter.addEventListener('change', (e) => {
-      this.filters.parser = e.target.value;
+    this.elements.sourceFilter.addEventListener('change', (e) => {
+      this.filters.source = e.target.value;
       this.applyFilters();
+    });
+
+    // Pending sources notification - click to open Sources tab
+    this.elements.viewPendingBtn?.addEventListener('click', () => {
+      this.sourceManager.switchTab('sources');
+      this.openSettings(); // Opens the settings modal which contains Sources tab
+    });
+
+    // Proxy suggestion banner - start proxy button
+    this.elements.startProxyFromBanner?.addEventListener('click', () => {
+      this.startProxy();
+      this.hideProxySuggestionBanner();
+    });
+
+    // Proxy suggestion banner - dismiss button
+    this.elements.dismissProxyBanner?.addEventListener('click', () => {
+      this.hideProxySuggestionBanner();
     });
 
     this.elements.eventTypeFilter.addEventListener('change', (e) => {
@@ -163,10 +236,6 @@ class AnalyticsLoggerUI {
     // Actions
     this.elements.clearBtn.addEventListener('click', () => {
       this.clearEvents();
-    });
-
-    this.elements.refreshBtn.addEventListener('click', () => {
-      this.loadEvents();
     });
 
     this.elements.exportJSONBtn.addEventListener('click', () => {
@@ -294,6 +363,39 @@ class AnalyticsLoggerUI {
     });
   }
 
+  async checkProxyRunning() {
+    try {
+      // Ping the proxy server to see if it's actually running
+      const response = await fetch('http://localhost:8889/events', {
+        method: 'GET',
+        signal: AbortSignal.timeout(2000)
+      });
+
+      if (response.ok) {
+        // Proxy is running
+        this.proxyRunning = true;
+        console.log('[Panel] Proxy server is running');
+      } else {
+        this.proxyRunning = false;
+      }
+    } catch (err) {
+      // Proxy not reachable - make sure useProxy setting is false
+      this.proxyRunning = false;
+
+      // If settings say proxy is enabled but it's not running, disable it
+      const settingsResponse = await chrome.runtime.sendMessage({ action: 'getSettings' });
+      if (settingsResponse.success && settingsResponse.settings.useProxy) {
+        console.log('[Panel] Proxy not running but useProxy was true - disabling');
+        await chrome.runtime.sendMessage({
+          action: 'updateSettings',
+          settings: { useProxy: false }
+        });
+      }
+    }
+
+    this.updateProxyMainUI();
+  }
+
   updateProxyMainUI() {
     const statusEl = this.elements.proxyStatusMain;
     const btnEl = this.elements.proxyActionBtn;
@@ -330,6 +432,13 @@ class AnalyticsLoggerUI {
 
   async startProxy() {
     try {
+      // Show initializing state
+      const statusEl = document.getElementById('proxyStatusMain');
+      const btnEl = document.getElementById('proxyActionBtn');
+      statusEl.textContent = 'Initializing...';
+      statusEl.className = 'stat-value initializing';
+      btnEl.disabled = true;
+
       const port = chrome.runtime.connectNative('com.analytics_logger.proxy');
 
       port.postMessage({ action: 'startProxy' });
@@ -340,6 +449,7 @@ class AnalyticsLoggerUI {
         if (response.success) {
           this.proxyRunning = true;
           this.updateProxyUI();
+          this.hideProxySuggestionBanner(); // Hide banner since proxy is now running
 
           // Enable proxy mode automatically
           const settings = {
@@ -355,15 +465,15 @@ class AnalyticsLoggerUI {
 
           // Show success message
           if (response.autoLaunched) {
-            alert('✅ MITM Proxy Started (Like Charles Proxy)!\n\n' +
-              'A new Chrome window opened with HTTPS interception enabled.\n\n' +
-              'This proxy can now capture analytics from extension service workers!\n\n' +
-              'Use your extensions (like Pie) in the new window and events will appear here.\n\n' +
-              'Tip: Look for the yellow "controlled by automated test software" banner.');
+            alert('✅ Proxy Started!\n\n' +
+              'A new Chrome window opened with HTTPS interception.\n\n' +
+              'Use your extensions in that window - events will appear here.\n\n' +
+              'Note: You may see security warnings about the proxy certificate.');
           } else {
             alert(response.message || 'Proxy started successfully!');
           }
         } else {
+          this.updateProxyUI(); // Reset UI on failure
           alert('Failed to start proxy: ' + (response.error || 'Unknown error'));
         }
 
@@ -373,12 +483,14 @@ class AnalyticsLoggerUI {
       port.onDisconnect.addListener(() => {
         if (chrome.runtime.lastError) {
           console.error('[Panel] Native messaging error:', chrome.runtime.lastError);
+          this.updateProxyUI(); // Reset UI
           alert('Native messaging host not installed.\n\nClick "Open Setup Assistant" button above.');
         }
       });
 
     } catch (err) {
       console.error('[Panel] Error starting proxy:', err);
+      this.updateProxyUI(); // Reset UI
       alert('Error: ' + err.message + '\n\nClick "Open Setup Assistant" button to complete setup.');
     }
   }
@@ -466,19 +578,53 @@ class AnalyticsLoggerUI {
           return;
         }
 
-        // New events added
+        // Add to events array
         this.events.unshift(...message.data);
         this.updateEventTypeFilter();
-        this.applyFilters();
-        this.updateStats(); // Update stats to reflect new total count
+        this.updateSourcesFilter();
+
+        // Check if we can do incremental update (no filters active)
+        if (!this.hasActiveFilters()) {
+          // Incremental update: prepend new cards without full re-render
+          // prependEventCards handles scroll position compensation internally
+          this.prependEventCards(message.data);
+        } else {
+          // Filters active - do full re-render
+          this.applyFilters();
+        }
+
+        this.updateStats();
       } else if (message.action === 'eventsCleared') {
         // Events were cleared (possibly by another panel or external action)
         this.events = [];
         this.filteredEvents = [];
         this.updateEventTypeFilter();
+        this.updateSourcesFilter();
         this.applyFilters();
         this.updateStats();
         console.log('[Panel] Events cleared by background');
+      } else if (message.action === 'autoPaused') {
+        // Auto-paused due to inactivity
+        console.log('[Panel] Auto-paused after', message.data.hours, 'hour(s) of inactivity');
+        this.isPaused = true;
+        this.isAutoPaused = true;
+        this.updatePauseButton();
+      } else if (message.action === 'unmatchedDomainsUpdated') {
+        // Refresh pending sources in real-time
+        if (this.sourceManager) {
+          this.sourceManager.loadPendingSources();
+        }
+        this.checkForSuggestions();
+      } else if (message.action === 'autoResumed') {
+        // Background auto-resumed on panel open
+        console.log('[Panel] Auto-resumed by background on panel open');
+        this.isPaused = false;
+        this.isAutoPaused = false;
+        this.updatePauseButton();
+      } else if (message.action === 'sourceNeedsProxy') {
+        // Show proxy suggestion banner when Chrome API can't read request bodies
+        console.log('[Panel] Source needs proxy:', message.data);
+        this.showProxySuggestionBanner(message.data);
       }
     });
 
@@ -489,21 +635,72 @@ class AnalyticsLoggerUI {
     });
   }
 
-  togglePause() {
+  async togglePause() {
     this.isPaused = !this.isPaused;
+
+    // If resuming from auto-pause, re-enable event capture in background
+    if (!this.isPaused && this.isAutoPaused) {
+      this.isAutoPaused = false;
+      try {
+        await chrome.runtime.sendMessage({
+          action: 'updateSettings',
+          settings: { enabled: true }
+        });
+        console.log('[Panel] Resumed from auto-pause, re-enabled event capture');
+      } catch (err) {
+        console.error('[Panel] Error re-enabling capture:', err);
+      }
+    }
+
     this.updatePauseButton();
     console.log('[Panel] Event collection', this.isPaused ? 'paused' : 'resumed');
   }
 
   updatePauseButton() {
     if (this.isPaused) {
-      this.elements.pauseBtn.innerHTML = '▶️ Resume';
+      if (this.isAutoPaused) {
+        this.elements.pauseBtn.innerHTML = '▶️ Auto-Paused';
+        this.elements.pauseBtn.title = 'Auto-paused due to inactivity. Click to resume.';
+      } else {
+        this.elements.pauseBtn.innerHTML = '▶️ Resume';
+        this.elements.pauseBtn.title = 'Resume event collection';
+      }
       this.elements.pauseBtn.classList.add('paused');
-      this.elements.pauseBtn.title = 'Resume event collection';
     } else {
       this.elements.pauseBtn.innerHTML = '⏸️ Pause';
       this.elements.pauseBtn.classList.remove('paused');
       this.elements.pauseBtn.title = 'Pause event collection';
+    }
+  }
+
+  /**
+   * Show the proxy suggestion banner when Chrome API can't read request bodies
+   * @param {object} data - { sourceId, sourceName, domain }
+   */
+  showProxySuggestionBanner(data) {
+    // Don't show if proxy is already running
+    if (this.proxyRunning) {
+      console.log('[Panel] Proxy already running, not showing banner');
+      return;
+    }
+
+    const banner = this.elements.proxySuggestionBanner;
+    const sourceNameEl = this.elements.proxyNeededSource;
+
+    if (banner && sourceNameEl) {
+      sourceNameEl.textContent = data.sourceName || 'Some sources';
+      banner.style.display = 'flex';
+      console.log('[Panel] Showing proxy suggestion banner for:', data.sourceName);
+    }
+  }
+
+  /**
+   * Hide the proxy suggestion banner
+   */
+  hideProxySuggestionBanner() {
+    const banner = this.elements.proxySuggestionBanner;
+    if (banner) {
+      banner.style.display = 'none';
     }
   }
 
@@ -514,6 +711,7 @@ class AnalyticsLoggerUI {
       if (response.success) {
         this.events = response.events;
         this.updateEventTypeFilter();
+        this.updateSourcesFilter();
         this.applyFilters();
         console.log('[Panel] Loaded events:', this.events.length);
       }
@@ -581,8 +779,8 @@ class AnalyticsLoggerUI {
         }
       }
 
-      // Parser filter
-      if (this.filters.parser && event._parser !== this.filters.parser) {
+      // Source filter
+      if (this.filters.source && event._source !== this.filters.source) {
         return false;
       }
 
@@ -598,11 +796,130 @@ class AnalyticsLoggerUI {
   }
 
   clearFilters() {
-    this.filters = { search: '', parser: '', eventType: '' };
+    this.filters = { search: '', source: '', eventType: '' };
     this.elements.searchInput.value = '';
-    this.elements.parserFilter.value = '';
+    this.elements.sourceFilter.value = '';
     this.elements.eventTypeFilter.value = '';
     this.applyFilters();
+  }
+
+  /**
+   * Check if any filters are currently active
+   */
+  hasActiveFilters() {
+    return !!(this.filters.search || this.filters.source || this.filters.eventType);
+  }
+
+  /**
+   * Prepend new event cards without full re-render
+   * This preserves existing UI state (expanded cards, view modes, etc.)
+   */
+  prependEventCards(events) {
+    // Hide empty state if visible
+    this.elements.emptyState.style.display = 'none';
+    this.elements.eventsList.style.display = 'flex';
+
+    // Capture scroll state BEFORE insertion to compensate afterward
+    const container = this.elements.eventsContainer;
+    const scrollTop = container.scrollTop;
+    const oldScrollHeight = container.scrollHeight;
+
+    // Generate HTML for new events only
+    const newHtml = events.map(event => this.renderEventCard(event)).join('');
+
+    // Prepend to existing list (no clearing)
+    this.elements.eventsList.insertAdjacentHTML('afterbegin', newHtml);
+
+    // Compensate scroll position to keep viewport stable
+    // Only adjust if user was NOT at the very top (scrollTop > 0)
+    if (scrollTop > 0) {
+      const newScrollHeight = container.scrollHeight;
+      const heightAdded = newScrollHeight - oldScrollHeight;
+      container.scrollTop = scrollTop + heightAdded;
+    }
+
+    // Update filtered events array
+    this.filteredEvents = [...events, ...this.filteredEvents];
+    this.elements.filteredEvents.textContent = this.filteredEvents.length;
+
+    // Add event listeners only to new cards (first N cards)
+    const allCards = this.elements.eventsList.querySelectorAll('.event-card');
+    const newCards = Array.from(allCards).slice(0, events.length);
+
+    newCards.forEach((card) => {
+      // Expand/collapse
+      card.addEventListener('click', (e) => {
+        if (!e.target.closest('.view-toggle-btn') &&
+          !e.target.closest('.json-expandable') &&
+          !e.target.closest('.collapsible-section') &&
+          !e.target.closest('.json-primitive') &&
+          !e.target.closest('.btn-configure-endpoint') &&
+          !e.target.closest('.btn-copy-json')) {
+
+          const wasExpanded = card.classList.contains('expanded');
+          card.classList.toggle('expanded');
+
+          if (!wasExpanded && card.classList.contains('expanded')) {
+            card.querySelectorAll('.json-expandable').forEach(expandable => {
+              expandable.classList.add('expanded');
+            });
+          }
+        }
+      });
+    });
+
+    // View toggle buttons
+    newCards.forEach((card) => {
+      const btn = card.querySelector('.view-toggle-btn');
+      if (btn) {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const eventId = btn.dataset.eventId;
+          const structuredView = card.querySelector('.structured-view');
+          const rawView = card.querySelector('.raw-view');
+
+          if (structuredView && rawView) {
+            const isShowingStructured = structuredView.style.display !== 'none';
+
+            if (isShowingStructured) {
+              structuredView.style.display = 'none';
+              rawView.style.display = 'block';
+              btn.textContent = 'Show Structured View';
+              this.viewModeState.set(eventId, 'raw');
+            } else {
+              structuredView.style.display = 'block';
+              rawView.style.display = 'none';
+              btn.textContent = 'Show Raw JSON';
+              this.viewModeState.set(eventId, 'structured');
+            }
+          }
+        });
+      }
+    });
+
+    // Configure endpoint buttons
+    newCards.forEach((card) => {
+      const btn = card.querySelector('.btn-configure-endpoint');
+      if (btn) {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const eventId = btn.dataset.eventId;
+          this.openEndpointConfigurator(eventId);
+        });
+      }
+    });
+
+    // Copy JSON buttons
+    newCards.forEach((card) => {
+      const btn = card.querySelector('.btn-copy-json');
+      if (btn) {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const eventId = btn.dataset.eventId;
+          this.copyEventJson(eventId, btn);
+        });
+      }
+    });
   }
 
   renderEvents() {
@@ -628,6 +945,16 @@ class AnalyticsLoggerUI {
       const eventId = card.dataset.id;
       if (eventId) {
         expandedEventIds.add(eventId);
+      }
+    });
+
+    // Preserve view mode state (raw/structured) before re-rendering
+    this.elements.eventsList.querySelectorAll('.event-card').forEach((card) => {
+      const eventId = card.dataset.id;
+      if (!eventId) return;
+      const rawView = card.querySelector('.raw-view');
+      if (rawView && rawView.style.display !== 'none') {
+        this.viewModeState.set(eventId, 'raw');
       }
     });
 
@@ -736,11 +1063,13 @@ class AnalyticsLoggerUI {
             structuredView.style.display = 'none';
             rawView.style.display = 'block';
             btn.textContent = 'Show Structured View';
+            this.viewModeState.set(eventId, 'raw');
           } else {
             // Switch to structured view
             structuredView.style.display = 'block';
             rawView.style.display = 'none';
             btn.textContent = 'Show Raw JSON';
+            this.viewModeState.set(eventId, 'structured');
           }
         }
       });
@@ -756,18 +1085,98 @@ class AnalyticsLoggerUI {
         });
       }
     });
+
+    // Add click listeners for Configure Endpoint buttons
+    this.elements.eventsList.querySelectorAll('.btn-configure-endpoint').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const eventId = btn.dataset.eventId;
+        this.openEndpointConfigurator(eventId);
+      });
+    });
+
+    // Add click listeners for Copy JSON buttons
+    this.elements.eventsList.querySelectorAll('.btn-copy-json').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const eventId = btn.dataset.eventId;
+        this.copyEventJson(eventId, btn);
+      });
+    });
+  }
+
+  /**
+   * Copy event raw JSON to clipboard
+   * @param {string} eventId - Event ID
+   * @param {HTMLElement} btn - Button element for feedback
+   */
+  copyEventJson(eventId, btn) {
+    const event = this.events.find(e => e.id === eventId);
+    if (!event) return;
+
+    const payload = event._rawPayload || event.properties || {};
+    const json = JSON.stringify(payload, null, 2);
+
+    navigator.clipboard.writeText(json).then(() => {
+      // Show feedback
+      btn.classList.add('copied');
+      btn.title = 'Copied!';
+      setTimeout(() => {
+        btn.classList.remove('copied');
+        btn.title = 'Copy to clipboard';
+      }, 1500);
+    }).catch(err => {
+      console.error('[Panel] Failed to copy:', err);
+    });
+  }
+
+  /**
+   * Open the endpoint configurator for a specific event
+   * @param {string} eventId - Event ID
+   */
+  openEndpointConfigurator(eventId) {
+    // Find the event in our events array
+    const event = this.events.find(e => e.id === eventId);
+    if (!event) {
+      console.error('[Panel] Event not found:', eventId);
+      return;
+    }
+
+    // Build context for the source manager
+    const context = {
+      url: event._metadata?.url,
+      rawPayload: event._rawPayload,
+      parentSourceId: event._source,
+      parentSourceName: event._sourceName
+    };
+
+    console.log('[Panel] Opening endpoint configurator with context:', context);
+
+    // Open the configurator via source manager
+    if (this.sourceManager) {
+      this.sourceManager.openEndpointConfigurator(context);
+    }
   }
 
   renderEventCard(event) {
     const timestamp = new Date(event.timestamp).toLocaleString();
-    const parser = event._parser || 'unknown';
+    const sourceName = event._sourceName || 'Unknown';
+    const sourceColor = event._sourceColor || '#6366F1';
     const eventId = event.id || `event-${Math.random().toString(36).substr(2, 9)}`;
+
+    // Check saved view mode for this event
+    const savedViewMode = this.viewModeState.get(eventId) || 'structured';
+    const structuredDisplay = savedViewMode === 'structured' ? '' : 'display: none;';
+    const rawDisplay = savedViewMode === 'raw' ? '' : 'display: none;';
+    const toggleBtnText = savedViewMode === 'raw' ? 'Show Structured View' : 'Show Raw JSON';
 
     return `
       <div class="event-card" data-id="${eventId}">
         <div class="event-header">
           <div class="event-name">${this.escapeHtml(event.event || 'Unknown Event')}</div>
-          <span class="event-badge ${parser}">${parser}</span>
+          <span class="event-badge" style="background: ${sourceColor}20; color: ${sourceColor}; border: 1px solid ${sourceColor}40;">
+            ${this.escapeHtml(sourceName)}
+          </span>
           <span class="event-expand-icon">▼</span>
         </div>
         <div class="event-meta">
@@ -779,20 +1188,20 @@ class AnalyticsLoggerUI {
               <span class="event-user">${this.escapeHtml(event.userId)}</span>
             </div>
           ` : ''}
-          ${event.type ? `
-            <div class="event-meta-item">
-              <span class="event-type-label">${this.escapeHtml(event.type)}</span>
-            </div>
-          ` : ''}
         </div>
         ${event._metadata?.url ? `
           <div class="event-url">${this.escapeHtml(event._metadata.url)}</div>
         ` : ''}
         <div class="event-details">
-          <button class="view-toggle-btn" data-event-id="${eventId}">Show Raw JSON</button>
+          <div class="event-actions">
+            <button class="view-toggle-btn" data-event-id="${eventId}">${toggleBtnText}</button>
+            ${event._metadata?.url ? `
+              <button class="btn-configure-endpoint btn btn-secondary btn-small" data-event-id="${eventId}" title="Configure field mappings for this endpoint">⚙️ Configure</button>
+            ` : ''}
+          </div>
 
-          <!-- Structured View (default) -->
-          <div class="structured-view" data-event-id="${eventId}">
+          <!-- Structured View -->
+          <div class="structured-view" data-event-id="${eventId}" style="${structuredDisplay}">
             ${event.properties && Object.keys(event.properties).length > 0 ? `
               <div class="event-section">
                 <div class="event-section-title">Properties</div>
@@ -805,39 +1214,21 @@ class AnalyticsLoggerUI {
                 <div class="structured-json">${this.renderStructuredJSON(event.context)}</div>
               </div>
             ` : ''}
-            <div class="event-section collapsible-section">
-              <div class="event-section-header">
-                <span class="section-expand-icon">▶</span>
-                <div class="event-section-title">Full Event Data</div>
-              </div>
-              <div class="event-section-content">
-                <div class="structured-json">${this.renderStructuredJSON(event)}</div>
-              </div>
-            </div>
           </div>
 
-          <!-- Raw JSON View (hidden by default) -->
-          <div class="raw-view" data-event-id="${eventId}" style="display: none;">
-            ${event.properties && Object.keys(event.properties).length > 0 ? `
-              <div class="event-section">
-                <div class="event-section-title">Properties</div>
-                <div class="event-json">${this.formatJSON(event.properties)}</div>
+          <!-- Raw JSON View -->
+          <div class="raw-view" data-event-id="${eventId}" style="${rawDisplay}">
+            <div class="event-section">
+              <div class="event-section-title">
+                Raw Payload
+                <button class="btn-copy-json" data-event-id="${eventId}" title="Copy to clipboard">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                </button>
               </div>
-            ` : ''}
-            ${event.context && Object.keys(event.context).length > 0 ? `
-              <div class="event-section">
-                <div class="event-section-title">Context</div>
-                <div class="event-json">${this.formatJSON(event.context)}</div>
-              </div>
-            ` : ''}
-            <div class="event-section collapsible-section">
-              <div class="event-section-header">
-                <span class="section-expand-icon">▶</span>
-                <div class="event-section-title">Full Event Data</div>
-              </div>
-              <div class="event-section-content">
-                <div class="event-json">${this.formatJSON(event)}</div>
-              </div>
+              <div class="event-json">${this.formatJSON(event._rawPayload || event.properties || {})}</div>
             </div>
           </div>
         </div>
@@ -1122,6 +1513,7 @@ class AnalyticsLoggerUI {
         this.events = [];
         this.filteredEvents = [];
         this.updateEventTypeFilter(); // Clear the event type dropdown
+        this.updateSourcesFilter(); // Clear the source dropdown
         this.applyFilters();
         this.updateStats();
         console.log('[Panel] Events cleared');
@@ -1178,7 +1570,7 @@ class AnalyticsLoggerUI {
     const filters = {};
 
     if (this.filters.search) filters.search = this.filters.search;
-    if (this.filters.parser) filters.parser = this.filters.parser;
+    if (this.filters.source) filters.source = this.filters.source;
     if (this.filters.eventType) filters.event = this.filters.eventType;
 
     return filters;
@@ -1192,14 +1584,10 @@ class AnalyticsLoggerUI {
         const settings = response.settings;
 
         // Populate settings form
-        document.getElementById('enabledSetting').checked = settings.enabled;
         document.getElementById('persistSetting').checked = settings.persistEvents;
         document.getElementById('maxEventsSetting').value = settings.maxEvents;
-        // useProxySetting is now automatic - handled by Start/Stop Proxy buttons
-        document.getElementById('captureSegmentSetting').checked = settings.captureSegment;
-        document.getElementById('captureGASetting').checked = settings.captureGA;
-        document.getElementById('captureGraphQLSetting').checked = settings.captureGraphQL;
-        document.getElementById('captureCustomSetting').checked = settings.captureCustom;
+        document.getElementById('autoPauseHoursSetting').value = settings.autoPauseHours || 3;
+        document.getElementById('detectNewSourcesSetting').checked = settings.detectNewSources !== false;
 
         // Initialize proxy UI
         this.updateProxyUI();
@@ -1218,14 +1606,10 @@ class AnalyticsLoggerUI {
 
   async saveSettings() {
     const settings = {
-      enabled: document.getElementById('enabledSetting').checked,
       persistEvents: document.getElementById('persistSetting').checked,
       maxEvents: parseInt(document.getElementById('maxEventsSetting').value),
-      // useProxy is now controlled by Start/Stop Proxy buttons - don't override it here
-      captureSegment: document.getElementById('captureSegmentSetting').checked,
-      captureGA: document.getElementById('captureGASetting').checked,
-      captureGraphQL: document.getElementById('captureGraphQLSetting').checked,
-      captureCustom: document.getElementById('captureCustomSetting').checked
+      autoPauseHours: parseInt(document.getElementById('autoPauseHoursSetting').value),
+      detectNewSources: document.getElementById('detectNewSourcesSetting').checked
     };
 
     try {
@@ -1237,7 +1621,7 @@ class AnalyticsLoggerUI {
       if (response.success) {
         console.log('[Panel] Settings saved');
         this.closeSettings();
-        alert('Settings saved successfully! Reload the extension for changes to take effect.');
+        // Settings are applied immediately - no reload needed
       }
     } catch (err) {
       console.error('[Panel] Error saving settings:', err);
@@ -1264,6 +1648,88 @@ class AnalyticsLoggerUI {
         document.body.removeChild(popup);
       }, 300);
     }, 1000);
+  }
+
+  /**
+   * Update source filter dropdown based on sources present in current events
+   */
+  updateSourcesFilter() {
+    if (!this.elements.sourceFilter) return;
+
+    // Collect unique sources from current events
+    const sourcesInEvents = new Map();
+    this.events.forEach(event => {
+      if (event._source && !sourcesInEvents.has(event._source)) {
+        sourcesInEvents.set(event._source, {
+          id: event._source,
+          name: event._sourceName || event._source
+        });
+      }
+    });
+
+    const currentValue = this.elements.sourceFilter.value;
+    this.elements.sourceFilter.innerHTML = '<option value="">All Sources</option>';
+
+    // Sort by name and add to dropdown
+    Array.from(sourcesInEvents.values())
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .forEach(source => {
+        const option = document.createElement('option');
+        option.value = source.id;
+        option.textContent = source.name;
+        this.elements.sourceFilter.appendChild(option);
+      });
+
+    // Restore selected value if it still exists in the new list
+    if (currentValue && sourcesInEvents.has(currentValue)) {
+      this.elements.sourceFilter.value = currentValue;
+    } else if (currentValue) {
+      // Selected source no longer has events, clear the filter
+      this.filters.source = '';
+    }
+  }
+
+  /**
+   * Load sources for the filter dropdown (kept for backwards compatibility)
+   */
+  async loadSourcesFilter() {
+    this.updateSourcesFilter();
+  }
+
+  /**
+   * Check for pending sources and show notification
+   */
+  async checkForSuggestions() {
+    try {
+      const response = await chrome.runtime.sendMessage({ action: 'getUnmatchedDomains' });
+
+      if (response.success && response.domains.length > 0) {
+        this.showPendingNotification(response.domains.length);
+      } else {
+        this.hidePendingNotification();
+      }
+    } catch (err) {
+      // Silently fail
+    }
+  }
+
+  /**
+   * Show the pending sources notification with count
+   */
+  showPendingNotification(count) {
+    if (this.elements.pendingNotification && this.elements.pendingCount) {
+      this.elements.pendingCount.textContent = count;
+      this.elements.pendingNotification.style.display = 'flex';
+    }
+  }
+
+  /**
+   * Hide the pending sources notification
+   */
+  hidePendingNotification() {
+    if (this.elements.pendingNotification) {
+      this.elements.pendingNotification.style.display = 'none';
+    }
   }
 }
 

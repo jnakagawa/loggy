@@ -18,9 +18,6 @@
         <button id="pauseBtn" class="btn btn-secondary" title="Pause event collection">
           ⏸️ Pause
         </button>
-        <button id="refreshBtn" class="btn btn-secondary" title="Refresh events">
-          🔄
-        </button>
         <button id="settingsBtn" class="btn btn-secondary" title="Settings">
           ⚙️
         </button>
@@ -45,8 +42,19 @@
         <span class="stat-label">Proxy:</span>
         <span class="stat-value" id="proxyStatusMain">Checking...</span>
         <button id="proxyActionBtn" class="btn btn-primary btn-small">Start</button>
-        <span class="info-icon" title="Enable the proxy to capture events from other Chrome extensions.">i</span>
+        <span class="info-icon" title="The proxy enables capture of: &#10;• Events from other Chrome extensions &#10;• Compressed or keepalive request bodies &#10;• Certain event formats requiring response inspection">i</span>
       </div>
+    </div>
+
+    <!-- Proxy Suggestion Banner (shown when Chrome API can't read request bodies) -->
+    <div id="proxySuggestionBanner" class="proxy-suggestion-banner" style="display: none;">
+      <span class="proxy-suggestion-icon">⚠️</span>
+      <span class="proxy-suggestion-text">
+        <strong id="proxyNeededSource">Some sources</strong> require the proxy for full event capture
+        <span class="proxy-suggestion-hint">(Chrome can't read compressed/keepalive request bodies)</span>
+      </span>
+      <button id="startProxyFromBanner" class="btn btn-primary btn-small">Start Proxy</button>
+      <button id="dismissProxyBanner" class="btn-close-small" title="Dismiss">×</button>
     </div>
 
     <!-- Filter Bar -->
@@ -57,14 +65,9 @@
         class="search-input"
         placeholder="Search events, properties, URLs..."
       >
-      <select id="parserFilter" class="filter-select">
+      <select id="sourceFilter" class="filter-select">
         <option value="">All Sources</option>
-        <option value="segment-batch">Segment Batch</option>
-        <option value="segment-track">Segment Track</option>
-        <option value="google-analytics-4">Google Analytics 4</option>
-        <option value="google-analytics-ua">Google Analytics UA</option>
-        <option value="graphql">GraphQL</option>
-        <option value="generic-json">Custom JSON</option>
+        <!-- Sources will be populated dynamically -->
       </select>
       <select id="eventTypeFilter" class="filter-select">
         <option value="">All Events</option>
@@ -74,6 +77,12 @@
 
     <!-- Action Bar -->
     <div class="action-bar">
+      <div id="pendingNotification" class="pending-indicator" style="display: none;">
+        <span class="pending-indicator-icon">💡</span>
+        <span class="pending-indicator-text"><strong id="pendingCount">0</strong> new source(s)</span>
+        <button id="viewPendingBtn" class="btn btn-small">View</button>
+      </div>
+      <div class="action-bar-spacer"></div>
       <button id="clearBtn" class="btn btn-danger btn-small">Clear All</button>
       <button id="exportJSONBtn" class="btn btn-primary btn-small">Export JSON</button>
       <button id="exportCSVBtn" class="btn btn-primary btn-small">Export CSV</button>
@@ -109,13 +118,6 @@
           <div id="generalTab" class="tab-content active">
           <div class="setting-group">
             <label class="setting-label">
-              <input type="checkbox" id="enabledSetting">
-              <span>Enable Event Capture</span>
-            </label>
-          </div>
-
-          <div class="setting-group">
-            <label class="setting-label">
               <input type="checkbox" id="persistSetting">
               <span>Persist Events (save to storage)</span>
             </label>
@@ -129,28 +131,46 @@
           </div>
 
           <div class="setting-group">
-            <h3>Capture Sources</h3>
             <label class="setting-label">
-              <input type="checkbox" id="captureSegmentSetting">
-              <span>Segment Analytics</span>
+              Auto-Pause After Inactivity:
             </label>
-            <label class="setting-label">
-              <input type="checkbox" id="captureGASetting">
-              <span>Google Analytics</span>
-            </label>
-            <label class="setting-label">
-              <input type="checkbox" id="captureGraphQLSetting">
-              <span>GraphQL</span>
-            </label>
-            <label class="setting-label">
-              <input type="checkbox" id="captureCustomSetting">
-              <span>Custom JSON</span>
-            </label>
+            <select id="autoPauseHoursSetting" class="filter-select">
+              <option value="1">1 hour</option>
+              <option value="2">2 hours</option>
+              <option value="3" selected>3 hours (default)</option>
+              <option value="24">24 hours</option>
+              <option value="0">Disabled</option>
+            </select>
+            <small style="color: #666; font-size: 11px; margin-top: 4px; display: block;">
+              Automatically pause event capture after no events are received for this duration.
+            </small>
           </div>
+
+          <div class="setting-group">
+            <label class="setting-label checkbox-label">
+              <input type="checkbox" id="detectNewSourcesSetting" checked>
+              <span>Detect New Sources</span>
+            </label>
+            <small style="color: #666; font-size: 11px; margin-top: 4px; display: block;">
+              Automatically detect and suggest new analytics sources from unmatched requests.
+            </small>
+          </div>
+
           </div><!-- End General Tab -->
 
           <!-- Sources Tab -->
           <div id="sourcesTab" class="tab-content">
+            <!-- Pending Sources Section -->
+            <div id="pendingSourcesSection" class="pending-sources-section" style="display: none;">
+              <div class="pending-sources-header">
+                <h4>Pending Sources</h4>
+                <span class="pending-sources-hint">These analytics endpoints were detected but don't match any configured source.</span>
+              </div>
+              <div id="pendingSourcesList" class="pending-sources-list">
+                <!-- Pending sources will be populated here -->
+              </div>
+            </div>
+
             <div class="sources-header">
               <h3>Analytics Sources</h3>
               <div style="display: flex; gap: 8px;">
@@ -182,63 +202,102 @@
         <button id="closeSourceEditorBtn" class="btn-close">✕</button>
       </div>
       <div class="modal-body">
-        <div class="setting-group">
-          <label class="setting-label">Name</label>
-          <input type="text" id="sourceName" placeholder="e.g., Reddit, My App">
-        </div>
-
-        <div class="setting-group" style="display: flex; gap: 12px;">
-          <div style="flex: 1;">
-            <label class="setting-label">Icon</label>
-            <input type="text" id="sourceIcon" placeholder="📊" maxlength="2">
-          </div>
-          <div style="flex: 1;">
-            <label class="setting-label">Color</label>
-            <input type="color" id="sourceColor" value="#6366F1">
-          </div>
-        </div>
-
-        <div class="setting-group">
-          <label class="setting-label">
+        <div class="source-enabled-toggle">
+          <label class="toggle-label">
             <input type="checkbox" id="sourceEnabled" checked>
-            <span>Enabled</span>
+            <span class="toggle-switch"></span>
+            <span class="toggle-text">Enabled</span>
           </label>
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">URL Patterns</label>
-          <div id="urlPatternsList" class="patterns-list">
-            <!-- Patterns will be added here -->
+          <label class="setting-label">Name</label>
+          <input type="text" id="sourceName" placeholder="e.g., Honey, My App">
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label">Domain</label>
+          <input type="text" id="sourceDomain" placeholder="e.g., joinhoney.com">
+          <small style="color: #666; font-size: 11px;">Base domain to match (matches all subdomains automatically)</small>
+        </div>
+
+        <!-- URL Pattern: Manual input (default mode) -->
+        <div class="setting-group" id="urlPatternManual">
+          <label class="setting-label">URL Pattern <span style="color: #999; font-weight: normal;">(optional)</span></label>
+          <input type="text" id="sourceUrlPattern" placeholder="e.g., /tracking/*, /api/v*/events">
+          <small style="color: #666; font-size: 11px;">Glob pattern for URL path. Use * for wildcard. Helps match specific endpoints.</small>
+        </div>
+
+        <!-- URL Pattern: Slider builder (endpoint config mode) -->
+        <div class="setting-group url-pattern-builder" id="urlPatternBuilder" style="display: none;">
+          <label class="setting-label">URL Pattern</label>
+          <small style="color: #666; font-size: 11px; display: block; margin-bottom: 8px;">
+            Drag slider to set how specific the pattern should be
+          </small>
+          <div class="url-segments" id="urlSegments">
+            <!-- Segments rendered dynamically -->
           </div>
-          <button id="addPatternBtn" class="btn btn-secondary btn-small">+ Add Pattern</button>
+          <div class="slider-container">
+            <span class="slider-label">Broad</span>
+            <input type="range" id="patternSlider" min="1" max="3" value="2">
+            <span class="slider-label">Specific</span>
+          </div>
+          <div class="pattern-preview">
+            <span class="pattern-label">Pattern:</span>
+            <code id="patternResult">/rest/trackObserveApi/*</code>
+          </div>
+          <div class="pattern-examples" id="patternExamples">
+            <!-- Will match / won't match examples -->
+          </div>
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">Parser</label>
-          <select id="sourceParser">
-            <option value="generic">Generic (auto-detect fields)</option>
-            <option value="segment">Segment</option>
-            <option value="reddit">Reddit</option>
-            <option value="google-analytics">Google Analytics</option>
-            <option value="graphql">GraphQL</option>
-          </select>
+          <label class="setting-label">Color</label>
+          <input type="color" id="sourceColor" value="#6366F1">
         </div>
 
-        <div class="setting-group">
-          <label class="setting-label">Field Mappings (comma-separated, tried in order)</label>
-          <div style="display: grid; gap: 8px;">
-            <div>
-              <label style="font-size: 12px; color: #666;">Event Name:</label>
-              <input type="text" id="fieldEventName" placeholder="event, eventName, action, type">
+        <div class="setting-group field-overrides">
+          <label class="setting-label">Field Mappings</label>
+          <small style="color: #666; font-size: 11px; display: block; margin-bottom: 8px;">
+            Click to select which payload field maps to each value. Leave empty for auto-detection.
+          </small>
+          <div class="field-pickers">
+            <div class="field-picker-row">
+              <label class="field-picker-label">Event Name:</label>
+              <div class="field-picker" id="fieldPickerEventName" data-field="eventName">
+                <span class="field-picker-value">auto-detect</span>
+                <span class="field-picker-arrow"></span>
+              </div>
+              <input type="hidden" id="fieldEventName">
             </div>
-            <div>
-              <label style="font-size: 12px; color: #666;">Timestamp:</label>
-              <input type="text" id="fieldTimestamp" placeholder="timestamp, time, ts, client_timestamp">
+            <div class="field-picker-row">
+              <label class="field-picker-label">Timestamp:</label>
+              <div class="field-picker" id="fieldPickerTimestamp" data-field="timestamp">
+                <span class="field-picker-value">auto-detect</span>
+                <span class="field-picker-arrow"></span>
+              </div>
+              <input type="hidden" id="fieldTimestamp">
             </div>
-            <div>
-              <label style="font-size: 12px; color: #666;">User ID:</label>
-              <input type="text" id="fieldUserId" placeholder="user_id, userId, uid">
+            <div class="field-picker-row">
+              <label class="field-picker-label">User ID:</label>
+              <div class="field-picker" id="fieldPickerUserId" data-field="userId">
+                <span class="field-picker-value">auto-detect</span>
+                <span class="field-picker-arrow"></span>
+              </div>
+              <input type="hidden" id="fieldUserId">
             </div>
+            <div class="field-picker-row">
+              <label class="field-picker-label">Properties:</label>
+              <div class="field-picker" id="fieldPickerPropertyContainer" data-field="propertyContainer">
+                <span class="field-picker-value">auto-detect</span>
+                <span class="field-picker-arrow"></span>
+              </div>
+              <input type="hidden" id="fieldPropertyContainer">
+            </div>
+          </div>
+          <!-- Field options dropdown (populated dynamically) -->
+          <div id="fieldOptionsDropdown" class="field-options-dropdown" style="display: none;">
+            <div class="field-options-list"></div>
           </div>
         </div>
 
@@ -252,7 +311,6 @@
       </div>
       <div class="modal-footer">
         <button id="deleteSourceBtn" class="btn btn-danger" style="margin-right: auto;">Delete</button>
-        <button id="testSourceBtn" class="btn btn-secondary">Test Pattern</button>
         <button id="saveSourceBtn" class="btn btn-primary">Save</button>
         <button id="cancelSourceBtn" class="btn btn-secondary">Cancel</button>
       </div>

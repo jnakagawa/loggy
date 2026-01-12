@@ -3,20 +3,22 @@
  *
  * Responsibilities:
  * - Load default and user-created source configs
- * - Match URLs to sources
+ * - Match URLs to sources by domain
+ * - Track unmatched analytics requests for auto-add suggestions
  * - Auto-detect field mappings from sample payloads
  * - Import/export configurations
  * - Persist to chrome.storage
  */
 
 import { SourceConfig } from './source-config.js';
-import { DEFAULT_SOURCES, FALLBACK_CONFIG } from './default-sources.js';
+import { DEFAULT_SOURCES, looksLikeAnalyticsEndpoint } from './default-sources.js';
 
 export class ConfigManager {
   constructor() {
     this.sources = new Map();
-    this.fallback = null;
     this.loaded = false;
+    // Track unmatched analytics requests for suggestions
+    this.unmatchedDomains = new Map(); // domain -> { url, payload, count, lastSeen }
   }
 
   /**
@@ -31,14 +33,15 @@ export class ConfigManager {
       this.sources.set(id, new SourceConfig(id, config));
     }
 
-    // Load fallback config
-    this.fallback = new SourceConfig('fallback', FALLBACK_CONFIG);
-
     // Overlay user configurations
     try {
       const result = await chrome.storage.local.get('sourceConfig');
       if (result.sourceConfig) {
         for (const [id, config] of Object.entries(result.sourceConfig)) {
+          // For system sources, ensure domain is preserved from defaults
+          if (DEFAULT_SOURCES[id] && !config.domain) {
+            config.domain = DEFAULT_SOURCES[id].domain;
+          }
           this.sources.set(id, SourceConfig.fromJSON(config));
         }
         console.log('[ConfigManager] Loaded', this.sources.size, 'sources from storage');
@@ -91,24 +94,134 @@ export class ConfigManager {
   }
 
   /**
-   * Find the best matching source for a URL
+   * Find the best matching source for a URL using priority matching
+   * More specific matches (domain + URL pattern) win over generic domain-only matches
    * @param {string} url - URL to match
-   * @returns {SourceConfig|null} - Matching source, or null for fallback
+   * @returns {SourceConfig|null} - Best matching source, or null if no match
    */
   findSourceForUrl(url) {
-    // Try enabled sources first
+    const urlDomain = SourceConfig.extractBaseDomainFromUrl(url);
+    if (!urlDomain) return null;
+
+    let bestMatch = null;
+    let bestScore = 0;
+
+    // Find source with highest match score
     for (const [id, source] of this.sources) {
-      if (source.enabled && source.matches(url)) {
-        return source;
+      if (!source.enabled) continue;
+
+      const score = source.getMatchScore(url);
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = source;
       }
     }
 
-    // Try fallback
-    if (this.fallback && this.fallback.enabled && this.fallback.matches(url)) {
-      return this.fallback;
+    return bestMatch;
+  }
+
+  /**
+   * Find source by domain
+   * @param {string} domain - Base domain to find
+   * @returns {SourceConfig|null} - Matching source
+   */
+  findSourceByDomain(domain) {
+    const normalizedDomain = domain.toLowerCase();
+    for (const [id, source] of this.sources) {
+      if (source.domain.toLowerCase() === normalizedDomain) {
+        return source;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Track an unmatched analytics request (for auto-add suggestions)
+   * @param {string} url - Request URL
+   * @param {object} payload - Request payload
+   */
+  trackUnmatchedRequest(url, payload) {
+    // Only track if it looks like an analytics endpoint
+    if (!looksLikeAnalyticsEndpoint(url)) {
+      return;
     }
 
-    return null;
+    const domain = SourceConfig.extractBaseDomainFromUrl(url);
+    if (!domain) return;
+
+    // Don't track if we have a source for this domain
+    if (this.findSourceByDomain(domain)) {
+      return;
+    }
+
+    const existing = this.unmatchedDomains.get(domain);
+    if (existing) {
+      existing.count++;
+      existing.lastSeen = Date.now();
+      // Keep the most recent payload
+      if (payload) existing.payload = payload;
+    } else {
+      this.unmatchedDomains.set(domain, {
+        domain,
+        url,
+        payload,
+        count: 1,
+        firstSeen: Date.now(),
+        lastSeen: Date.now()
+      });
+    }
+  }
+
+  /**
+   * Get unmatched domains (for suggestion UI)
+   * @returns {Array<object>} - Unmatched domain info
+   */
+  getUnmatchedDomains() {
+    // Return sorted by count (most frequent first)
+    return Array.from(this.unmatchedDomains.values())
+      .sort((a, b) => b.count - a.count);
+  }
+
+  /**
+   * Clear unmatched domain tracking
+   * @param {string} domain - Optional specific domain to clear
+   */
+  clearUnmatchedDomain(domain = null) {
+    if (domain) {
+      this.unmatchedDomains.delete(domain);
+    } else {
+      this.unmatchedDomains.clear();
+    }
+  }
+
+  /**
+   * Merge unmatched domain from proxy server
+   * @param {object} unmatched - Unmatched domain info from proxy
+   */
+  mergeUnmatchedDomain(unmatched) {
+    const domain = unmatched.domain;
+    if (!domain) return;
+
+    // Skip if we already have a source for this domain
+    if (this.findSourceByDomain(domain)) return;
+
+    const existing = this.unmatchedDomains.get(domain);
+    if (existing) {
+      // Merge counts and update timestamps
+      existing.count = Math.max(existing.count, unmatched.count || 1);
+      existing.lastSeen = Math.max(existing.lastSeen, unmatched.lastSeen || Date.now());
+      if (unmatched.payload) existing.payload = unmatched.payload;
+    } else {
+      // Add new unmatched domain
+      this.unmatchedDomains.set(domain, {
+        domain: unmatched.domain,
+        url: unmatched.url,
+        payload: unmatched.payload,
+        count: unmatched.count || 1,
+        firstSeen: unmatched.firstSeen || Date.now(),
+        lastSeen: unmatched.lastSeen || Date.now()
+      });
+    }
   }
 
   /**
@@ -135,6 +248,8 @@ export class ConfigManager {
    */
   async addSource(source) {
     this.sources.set(source.id, source);
+    // Clear from unmatched if we're adding a source for this domain
+    this.clearUnmatchedDomain(source.domain);
     await this.save();
   }
 
@@ -152,116 +267,32 @@ export class ConfigManager {
   }
 
   /**
-   * Create a source from a sample event
-   * Auto-detects field mappings from the payload
+   * Create a source from a domain and optional sample payload
+   * Auto-detects field mappings from the payload using the parser
    *
-   * @param {string} url - URL the event came from
-   * @param {object} payload - Event payload
+   * @param {string} domain - Base domain (e.g., "joinhoney.com")
+   * @param {object} payload - Optional sample payload for field detection
    * @returns {SourceConfig} - New source config
    */
-  createFromSample(url, payload) {
-    try {
-      const urlObj = new URL(url);
-      const domain = urlObj.hostname;
-      const id = domain.replace(/\./g, '-');
+  createFromDomain(domain, payload = null) {
+    const id = domain.replace(/\./g, '-');
+    const name = this.humanizeDomain(domain);
+    const icon = this.selectIcon(domain);
+    const color = new SourceConfig(id).generateDefaultColor();
 
-      const fieldMappings = this.guessFieldMappings(payload);
-      const name = this.humanizeDomain(domain);
-      const icon = this.selectIcon(domain);
-      const color = new SourceConfig(id).generateDefaultColor();
+    // Field mappings are optional - parser auto-detects
+    // Only add if user explicitly selects fields
+    const fieldMappings = {};
 
-      return new SourceConfig(id, {
-        name,
-        color,
-        icon,
-        urlPatterns: [
-          { pattern: domain, type: 'contains' }
-        ],
-        fieldMappings,
-        parser: 'generic',
-        createdBy: 'user',
-        createdAt: new Date().toISOString()
-      });
-    } catch (err) {
-      console.error('[ConfigManager] Error creating from sample:', err);
-      return null;
-    }
-  }
-
-  /**
-   * Guess field mappings from a sample payload using heuristics
-   * @param {object} payload - Sample payload
-   * @returns {object} - Field mappings
-   */
-  guessFieldMappings(payload) {
-    const mappings = {};
-
-    // Common field names for event name
-    const eventNameFields = [
-      'event', 'eventName', 'event_name', 'name',
-      'type', 'action', 'eventType', 'event_type'
-    ];
-
-    // Common field names for timestamp
-    const timestampFields = [
-      'timestamp', 'time', 'ts', 'sentAt', 'sent_at',
-      'client_timestamp', 'event_timestamp', 'created_at'
-    ];
-
-    // Common field names for user ID
-    const userIdFields = [
-      'user_id', 'userId', 'uid', 'user.id', 'user_id',
-      'anonymous_id', 'anonymousId', 'distinct_id'
-    ];
-
-    // Find matching fields
-    mappings.eventName = this.findMatchingFields(payload, eventNameFields);
-    mappings.timestamp = this.findMatchingFields(payload, timestampFields);
-    mappings.userId = this.findMatchingFields(payload, userIdFields);
-
-    // Include all other fields as properties
-    mappings.properties = 'all';
-
-    return mappings;
-  }
-
-  /**
-   * Find which field names exist in the payload
-   * @param {object} payload - Payload to search
-   * @param {Array<string>} candidateFields - Field names to try
-   * @returns {Array<string>} - Fields that exist
-   */
-  findMatchingFields(payload, candidateFields) {
-    const found = [];
-
-    for (const field of candidateFields) {
-      if (this.hasField(payload, field)) {
-        found.push(field);
-      }
-    }
-
-    return found;
-  }
-
-  /**
-   * Check if a field exists in a payload (supports dot notation)
-   * @param {object} payload - Payload to search
-   * @param {string} field - Field path (e.g., 'user.id')
-   * @returns {boolean} - True if field exists
-   */
-  hasField(payload, field) {
-    const keys = field.split('.');
-    let current = payload;
-
-    for (const key of keys) {
-      if (current && typeof current === 'object' && key in current) {
-        current = current[key];
-      } else {
-        return false;
-      }
-    }
-
-    return true;
+    return new SourceConfig(id, {
+      name,
+      color,
+      icon,
+      domain,
+      fieldMappings,
+      createdBy: 'user',
+      createdAt: new Date().toISOString()
+    });
   }
 
   /**
@@ -299,6 +330,7 @@ export class ConfigManager {
       'github': '🐙',
       'analytics': '📊',
       'track': '📍',
+      'honey': '🍯',
       'api': '⚡'
     };
 

@@ -2,12 +2,34 @@
  * MITM Proxy for Analytics (like Charles Proxy)
  *
  * This proxy intercepts HTTPS traffic (including from extension service workers)
- * and captures analytics events using ConfigManager for universal source matching.
+ * and captures analytics events using domain-based matching and smart parsing.
  */
 
-const MitmProxy = require('http-mitm-proxy').Proxy;
-const http = require('http');
-const { ConfigManagerNode } = require('./config/config-manager-node.js');
+import { Proxy as MitmProxy } from 'http-mitm-proxy';
+import http from 'http';
+import zlib from 'zlib';
+import { AnalyticsParser } from './parsers.js';
+import { ConfigManagerNode, SourceConfig, looksLikeAnalyticsEndpoint } from './config/config-manager-node.js';
+
+/**
+ * Decompress body if needed based on Content-Encoding
+ */
+function decompressBody(bodyBuffer, encoding) {
+  if (!encoding) return bodyBuffer.toString('utf-8');
+
+  try {
+    if (encoding === 'gzip') {
+      return zlib.gunzipSync(bodyBuffer).toString('utf-8');
+    } else if (encoding === 'deflate') {
+      return zlib.inflateSync(bodyBuffer).toString('utf-8');
+    } else if (encoding === 'br') {
+      return zlib.brotliDecompressSync(bodyBuffer).toString('utf-8');
+    }
+  } catch (err) {
+    console.error('[MITM Proxy] Decompression failed:', err.message);
+  }
+  return bodyBuffer.toString('utf-8');
+}
 
 const PROXY_PORT = 8888;
 const API_PORT = 8889;
@@ -29,132 +51,63 @@ proxy.onError((ctx, err) => {
   console.error('[MITM Proxy] Error:', err.message);
 });
 
-// Helper function to parse events based on source configuration
+/**
+ * Parse events using shared AnalyticsParser and enrich with source metadata
+ */
 function parseEventFromSource(source, data, fullUrl) {
-  const events = [];
+  // Use shared AnalyticsParser for parsing
+  const events = AnalyticsParser.parsePayload(data, source.fieldMappings || {});
 
-  // Handle Segment/Pie batch format
-  if (source.parser === 'segment' && data.batch && Array.isArray(data.batch)) {
-    data.batch.forEach(event => {
-      events.push({
-        id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-        timestamp: event.timestamp || event.sentAt || new Date().toISOString(),
-        event: event.event || event.type,
-        properties: event.properties || {},
-        context: event.context || {},
-        type: event.type || 'track',
-        userId: event.userId,
-        anonymousId: event.anonymousId,
-        _source: source.id,
-        _sourceName: source.name,
-        _sourceIcon: source.icon,
-        _sourceColor: source.color,
-        _metadata: {
-          url: fullUrl,
-          capturedAt: new Date().toISOString(),
-          parser: source.parser
-        }
-      });
-    });
-  }
-  // Handle Reddit format
-  else if (source.parser === 'reddit') {
-    const redditEvents = Array.isArray(data) ? data : [data];
-
-    redditEvents.forEach(item => {
-      const extracted = source.extractFields(item);
-      events.push({
-        id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-        timestamp: extracted.timestamp || new Date().toISOString(),
-        event: extracted.eventName || 'reddit_event',
-        properties: extracted.properties || item,
-        userId: extracted.userId,
-        _source: source.id,
-        _sourceName: source.name,
-        _sourceIcon: source.icon,
-        _sourceColor: source.color,
-        _metadata: {
-          url: fullUrl,
-          capturedAt: new Date().toISOString(),
-          parser: source.parser
-        }
-      });
-    });
-  }
-  // Generic parser using field mappings
-  else {
-    // Check if data has an events array (common pattern)
-    const eventArray = data.events || data.batch || (Array.isArray(data) ? data : null);
-
-    if (eventArray && Array.isArray(eventArray)) {
-      // Process each event in the array
-      eventArray.forEach(item => {
-        const eventName = item.event || item.code || item.action || item.name || item.type || 'unknown';
-        events.push({
-          id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-          timestamp: item.timestamp || item.client_ts || item.sentAt || new Date().toISOString(),
-          event: eventName,
-          properties: item,
-          userId: item.userId || item.user_id || data.userId,
-          _source: source.id,
-          _sourceName: source.name,
-          _sourceIcon: source.icon,
-          _sourceColor: source.color,
-          _metadata: {
-            url: fullUrl,
-            capturedAt: new Date().toISOString(),
-            parser: source.parser
-          }
-        });
-      });
-    } else {
-      // Single event - try to extract or use whole payload
-      const extracted = source.extractFields(data);
-      const eventName = extracted.eventName || data.event || data.code || data.action || data.name || data.type || 'unknown';
-
-      events.push({
-        id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-        timestamp: extracted.timestamp || data.timestamp || new Date().toISOString(),
-        event: eventName,
-        properties: extracted.properties || data,
-        userId: extracted.userId || data.userId || data.user_id,
-        _source: source.id,
-        _sourceName: source.name,
-        _sourceIcon: source.icon,
-        _sourceColor: source.color,
-        _metadata: {
-          url: fullUrl,
-          capturedAt: new Date().toISOString(),
-          parser: source.parser
-        }
-      });
+  // Enrich events with source metadata
+  return events.map(event => ({
+    ...event,
+    _source: source.id,
+    _sourceName: source.name,
+    _sourceIcon: source.icon,
+    _sourceColor: source.color,
+    _metadata: {
+      url: fullUrl,
+      capturedAt: new Date().toISOString()
     }
-  }
-
-  return events;
+  }));
 }
 
 // Intercept HTTPS requests
 proxy.onRequest((ctx, callback) => {
   const url = ctx.clientToProxyRequest.url;
-  const fullUrl = `${ctx.isSSL ? 'https' : 'http'}://${ctx.clientToProxyRequest.headers.host}${url}`;
+  const host = ctx.clientToProxyRequest.headers.host;
+  const fullUrl = `${ctx.isSSL ? 'https' : 'http'}://${host}${url}`;
 
-  // Find matching source using ConfigManager
+  // Find matching source using domain matching
   const source = configManager.findSourceForUrl(fullUrl);
 
-  if (source && ctx.clientToProxyRequest.method === 'POST') {
-    console.log(`[MITM Proxy] Matched source "${source.name}" for: ${fullUrl}`);
+  // Debug: Log all POST requests to see what's coming through
+  if (ctx.clientToProxyRequest.method === 'POST') {
+    const domain = SourceConfig.extractBaseDomainFromUrl(fullUrl);
+    console.log(`[MITM Proxy] POST to ${domain}: ${fullUrl.slice(0, 80)}...`);
+    if (source) {
+      console.log(`[MITM Proxy]   → Matched source: ${source.name} (enabled: ${source.enabled})`);
+    } else {
+      console.log(`[MITM Proxy]   → No source match. Sources: ${configManager.getAllSources().map(s => `${s.domain}(${s.enabled})`).join(', ')}`);
+    }
+  }
 
-    // Collect request body
-    let body = '';
-    ctx.onRequestData((ctx, chunk, callback) => {
-      body += chunk.toString();
+  if (source && ctx.clientToProxyRequest.method === 'POST') {
+    console.log(`[MITM Proxy] Capturing event from "${source.name}" for: ${fullUrl}`);
+
+    // Collect request body as buffer (to handle compression)
+    const chunks = [];
+    ctx.onRequestData((_, chunk, callback) => {
+      chunks.push(chunk);
       return callback(null, chunk);
     });
 
-    ctx.onRequestEnd((ctx, callback) => {
+    ctx.onRequestEnd((_, callback) => {
       // Parse and store the analytics event
       try {
+        const bodyBuffer = Buffer.concat(chunks);
+        const encoding = ctx.clientToProxyRequest.headers['content-encoding'];
+        const body = decompressBody(bodyBuffer, encoding);
         const data = JSON.parse(body);
         const events = parseEventFromSource(source, data, fullUrl);
 
@@ -166,7 +119,7 @@ proxy.onRequest((ctx, callback) => {
             capturedEvents.length = MAX_EVENTS;
           }
 
-          console.log(`[MITM Proxy] ✅ Captured event: ${captured.event} from ${source.name}`);
+          console.log(`[MITM Proxy] Captured event: ${captured.event} from ${source.name}`);
         });
 
         // Update source statistics
@@ -180,6 +133,28 @@ proxy.onRequest((ctx, callback) => {
 
       return callback();
     });
+  } else if (ctx.clientToProxyRequest.method === 'POST' && looksLikeAnalyticsEndpoint(fullUrl)) {
+    // Track unmatched analytics request for suggestions
+    const chunks = [];
+    ctx.onRequestData((_, chunk, callback) => {
+      chunks.push(chunk);
+      return callback(null, chunk);
+    });
+
+    ctx.onRequestEnd((_, callback) => {
+      try {
+        const bodyBuffer = Buffer.concat(chunks);
+        const encoding = ctx.clientToProxyRequest.headers['content-encoding'];
+        const body = decompressBody(bodyBuffer, encoding);
+        const data = JSON.parse(body);
+        configManager.trackUnmatchedRequest(fullUrl, data);
+        const domain = SourceConfig.extractBaseDomainFromUrl(fullUrl);
+        console.log(`[MITM Proxy] Unmatched analytics from: ${domain}`);
+      } catch {
+        // Not JSON, ignore
+      }
+      return callback();
+    });
   }
 
   return callback();
@@ -188,14 +163,14 @@ proxy.onRequest((ctx, callback) => {
 // Start MITM proxy
 proxy.listen({
   port: PROXY_PORT,
-  host: '0.0.0.0'  // Listen on all interfaces (IPv4 and IPv6)
+  host: '0.0.0.0'
 }, () => {
-  console.log(`\n🔌 MITM Proxy running on 0.0.0.0:${PROXY_PORT}`);
-  console.log(`📊 API server running on port ${API_PORT}`);
-  console.log(`\n📝 Certificate location: ~/.http-mitm-proxy/certs/ca.pem`);
-  console.log(`\n⚠️  IMPORTANT: You must trust the CA certificate for HTTPS interception to work.`);
+  console.log(`\n MITM Proxy running on 0.0.0.0:${PROXY_PORT}`);
+  console.log(` API server running on port ${API_PORT}`);
+  console.log(`\n Certificate location: ~/.http-mitm-proxy/certs/ca.pem`);
+  console.log(`\n IMPORTANT: You must trust the CA certificate for HTTPS interception to work.`);
   console.log(`   Run: security add-trusted-cert -d -r trustRoot -k ~/Library/Keychains/login.keychain-db ~/.http-mitm-proxy/certs/ca.pem`);
-  console.log(`\n⚡ Ready to intercept analytics events!\n`);
+  console.log(`\n Ready to intercept analytics events!\n`);
 });
 
 // API server for Analytics Logger to fetch events
@@ -215,7 +190,8 @@ const apiServer = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       events: capturedEvents,
-      count: capturedEvents.length
+      count: capturedEvents.length,
+      unmatchedDomains: configManager.getUnmatchedDomains()
     }));
   } else if (req.url === '/clear' && req.method === 'POST') {
     capturedEvents.length = 0;
@@ -232,15 +208,12 @@ const apiServer = http.createServer((req, res) => {
 
         // Add/update sources from extension
         sources.forEach(sourceData => {
-          const source = new (require('./config/config-manager-node.js').SourceConfig)(
-            sourceData.id,
-            sourceData
-          );
+          const source = new SourceConfig(sourceData.id, sourceData);
           configManager.sources.set(sourceData.id, source);
           added++;
         });
 
-        console.log(`[MITM Proxy] ✅ Synced ${added} sources from extension`);
+        console.log(`[MITM Proxy] Synced ${added} sources from extension`);
         console.log(`[MITM Proxy] Total sources: ${configManager.getAllSources().length}`);
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -257,6 +230,12 @@ const apiServer = http.createServer((req, res) => {
     res.end(JSON.stringify({
       sources: configManager.getAllSources().map(s => s.toJSON()),
       count: configManager.getAllSources().length
+    }));
+  } else if (req.url === '/unmatched' && req.method === 'GET') {
+    // Return unmatched domains (for suggestions)
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      domains: configManager.getUnmatchedDomains()
     }));
   } else {
     res.writeHead(404);

@@ -1,9 +1,9 @@
 /**
  * SourceConfig - Represents an analytics source configuration
  *
- * Each source (e.g., Reddit, Segment, custom apps) has:
- * - URL patterns to match
- * - Field mappings for extracting event data
+ * Each source (e.g., Reddit, Segment, Honey) has:
+ * - A domain to match (e.g., "joinhoney.com" matches all subdomains)
+ * - Optional field mappings to override auto-detection
  * - Visual identity (icon, color)
  * - Statistics tracking
  */
@@ -15,98 +15,168 @@ export class SourceConfig {
     this.enabled = config.enabled ?? true;
     this.color = config.color || this.generateDefaultColor();
     this.icon = config.icon || '📊';
-    this.urlPatterns = config.urlPatterns || [];
-    this.fieldMappings = config.fieldMappings || {};
-    this.parser = config.parser || 'generic';
+    this.domain = config.domain || ''; // Base domain to match (e.g., "joinhoney.com")
+    this.urlPattern = config.urlPattern || null; // Optional glob pattern for URL path (e.g., "/tracking/*")
+    this.fieldMappings = config.fieldMappings || {}; // Optional overrides only
     this.createdBy = config.createdBy || 'system';
     this.createdAt = config.createdAt || new Date().toISOString();
     this.stats = config.stats || {
       eventsCapture: 0,
       lastCaptured: null
     };
+
+    // Migration: Convert old urlPatterns to domain
+    if (config.urlPatterns && config.urlPatterns.length > 0 && !config.domain) {
+      this.domain = this.migrateToDomain(config.urlPatterns);
+    }
+  }
+
+  /**
+   * Migrate old urlPatterns to a single domain
+   * @param {Array} urlPatterns - Old URL patterns array
+   * @returns {string} - Extracted domain
+   */
+  migrateToDomain(urlPatterns) {
+    // Try to extract domain from first pattern
+    const firstPattern = urlPatterns[0];
+    if (!firstPattern) return '';
+
+    const pattern = firstPattern.pattern || firstPattern;
+
+    // If it looks like a URL or domain, extract base domain
+    try {
+      // Handle full URLs
+      if (pattern.includes('://')) {
+        const url = new URL(pattern);
+        return SourceConfig.extractBaseDomain(url.hostname);
+      }
+      // Handle domain-like strings (e.g., "s.joinhoney.com" or "s.joinhoney.com/evs")
+      if (pattern.includes('.')) {
+        // Extract just the domain part (before any path)
+        const domainPart = pattern.split('/')[0];
+        return SourceConfig.extractBaseDomain(domainPart);
+      }
+      // Handle patterns like "/v1/batch" - can't extract domain
+      return '';
+    } catch {
+      return '';
+    }
+  }
+
+  /**
+   * Extract base domain from hostname (removes subdomains)
+   * e.g., "s.joinhoney.com" -> "joinhoney.com"
+   * e.g., "api.segment.io" -> "segment.io"
+   * @param {string} hostname - Full hostname
+   * @returns {string} - Base domain
+   */
+  static extractBaseDomain(hostname) {
+    if (!hostname) return '';
+
+    // Remove port if present
+    hostname = hostname.split(':')[0];
+
+    // Handle IP addresses
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
+      return hostname;
+    }
+
+    // Split into parts
+    const parts = hostname.toLowerCase().split('.');
+
+    // Handle special cases (co.uk, com.au, etc.)
+    const specialTLDs = ['co.uk', 'com.au', 'co.nz', 'co.jp', 'com.br'];
+    const lastTwo = parts.slice(-2).join('.');
+
+    if (specialTLDs.includes(lastTwo) && parts.length > 2) {
+      // Return last 3 parts for special TLDs
+      return parts.slice(-3).join('.');
+    }
+
+    // Standard case: return last 2 parts
+    if (parts.length >= 2) {
+      return parts.slice(-2).join('.');
+    }
+
+    return hostname;
+  }
+
+  /**
+   * Extract base domain from a full URL
+   * @param {string} url - Full URL
+   * @returns {string} - Base domain
+   */
+  static extractBaseDomainFromUrl(url) {
+    try {
+      const urlObj = new URL(url);
+      return SourceConfig.extractBaseDomain(urlObj.hostname);
+    } catch {
+      return '';
+    }
   }
 
   /**
    * Check if this source matches a URL
    * @param {string} url - URL to test
-   * @returns {boolean} - True if URL matches any pattern
+   * @returns {boolean} - True if URL matches this source's domain and optional path pattern
    */
   matches(url) {
-    if (!this.enabled) return false;
-    return this.urlPatterns.some(p => this.matchPattern(url, p));
-  }
+    if (!this.enabled || !this.domain) return false;
 
-  /**
-   * Match a single pattern against a URL
-   * @param {string} url - URL to test
-   * @param {object} pattern - Pattern object with { pattern, type }
-   * @returns {boolean} - True if pattern matches
-   */
-  matchPattern(url, pattern) {
     try {
-      switch (pattern.type) {
-        case 'contains':
-          return url.toLowerCase().includes(pattern.pattern.toLowerCase());
-        case 'regex':
-          return new RegExp(pattern.pattern, 'i').test(url);
-        case 'exact':
-          return url === pattern.pattern;
-        default:
-          console.warn(`Unknown pattern type: ${pattern.type}`);
-          return false;
+      const urlObj = new URL(url);
+      const urlDomain = SourceConfig.extractBaseDomain(urlObj.hostname);
+
+      // Domain must match
+      if (urlDomain !== this.domain.toLowerCase()) return false;
+
+      // If urlPattern is specified, path must also match
+      if (this.urlPattern) {
+        return this.matchesPattern(urlObj.pathname, this.urlPattern);
       }
-    } catch (err) {
-      console.error(`Error matching pattern ${pattern.pattern}:`, err);
+
+      return true;
+    } catch {
       return false;
     }
   }
 
   /**
-   * Extract fields from a payload based on field mappings
-   * @param {object} payload - Raw event payload
-   * @returns {object} - Extracted fields
+   * Check if a URL path matches a glob pattern
+   * @param {string} path - URL path to test
+   * @param {string} pattern - Glob pattern like /tracking/* or /api/v1/events
+   * @returns {boolean} - True if path matches pattern
    */
-  extractFields(payload) {
-    const extracted = {};
-
-    for (const [field, paths] of Object.entries(this.fieldMappings)) {
-      if (field === 'properties' && paths === 'all') {
-        // Include all fields as properties
-        extracted.properties = { ...payload };
-        continue;
-      }
-
-      if (Array.isArray(paths)) {
-        // Try each path in order until we find a value
-        for (const path of paths) {
-          const value = this.getNestedValue(payload, path);
-          if (value !== undefined && value !== null) {
-            extracted[field] = value;
-            break;
-          }
-        }
-      } else if (typeof paths === 'string') {
-        // Single path
-        const value = this.getNestedValue(payload, paths);
-        if (value !== undefined && value !== null) {
-          extracted[field] = value;
-        }
-      }
-    }
-
-    return extracted;
+  matchesPattern(path, pattern) {
+    const regex = SourceConfig.globToRegex(pattern);
+    return regex.test(path);
   }
 
   /**
-   * Get a nested value from an object using dot notation
-   * @param {object} obj - Object to query
-   * @param {string} path - Dot-separated path (e.g., 'user.id')
-   * @returns {*} - Value at path, or undefined
+   * Get match score for priority matching
+   * Higher score = more specific match
+   * @param {string} url - URL to test
+   * @returns {number} - 0 = no match, 1 = domain only, 2 = domain + pattern
    */
-  getNestedValue(obj, path) {
-    return path.split('.').reduce((current, key) => {
-      return current?.[key];
-    }, obj);
+  getMatchScore(url) {
+    if (!this.matches(url)) return 0;
+    return this.urlPattern ? 2 : 1;
+  }
+
+  /**
+   * Convert glob pattern to regex
+   * Supports: * (any chars except /), ** (any chars including /)
+   * @param {string} pattern - Glob pattern
+   * @returns {RegExp} - Compiled regex
+   */
+  static globToRegex(pattern) {
+    // Escape regex special chars except *
+    const escaped = pattern
+      .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+      .replace(/\*\*/g, '\u0000')  // Temp placeholder for **
+      .replace(/\*/g, '[^/]*')      // * matches anything except /
+      .replace(/\u0000/g, '.*');    // ** matches anything including /
+    return new RegExp(`^${escaped}$`);
   }
 
   /**
@@ -141,19 +211,23 @@ export class SourceConfig {
    * @returns {object} - JSON representation
    */
   toJSON() {
-    return {
+    const json = {
       id: this.id,
       name: this.name,
       enabled: this.enabled,
       color: this.color,
       icon: this.icon,
-      urlPatterns: this.urlPatterns,
+      domain: this.domain,
       fieldMappings: this.fieldMappings,
-      parser: this.parser,
       createdBy: this.createdBy,
       createdAt: this.createdAt,
       stats: this.stats
     };
+    // Only include urlPattern if set (keep JSON clean)
+    if (this.urlPattern) {
+      json.urlPattern = this.urlPattern;
+    }
+    return json;
   }
 
   /**
