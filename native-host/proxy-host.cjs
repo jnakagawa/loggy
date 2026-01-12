@@ -113,18 +113,10 @@ function actuallyStartProxy() {
 
   // Check if dependencies are installed
   if (!fs.existsSync(depsPath)) {
-    // Auto-install dependencies (use full path since native host has limited PATH)
-    const npmPath = '/opt/homebrew/bin/npm';
-    exec(`${npmPath} install`, { cwd: projectRoot }, (err, stdout, stderr) => {
-      if (err) {
-        sendMessage({
-          success: false,
-          error: 'Failed to install dependencies: ' + (stderr || err.message)
-        });
-        return;
-      }
-      // Dependencies installed, now start proxy
-      doStartProxy();
+    sendMessage({
+      success: false,
+      error: 'Dependencies not installed. Please run the setup command again (it includes npm install).',
+      needsSetup: true
     });
     return;
   }

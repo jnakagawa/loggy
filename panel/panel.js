@@ -498,7 +498,14 @@ class AnalyticsLoggerUI {
           }
         } else {
           this.updateProxyUI(); // Reset UI on failure
-          alert('Failed to start proxy: ' + (response.error || 'Unknown error'));
+          if (response.needsSetup) {
+            // Dependencies missing - open setup assistant
+            this.needsDepsInstall = true;
+            this.updateProxyMainUI();
+            this.openSetupAssistant();
+          } else {
+            alert('Failed to start proxy: ' + (response.error || 'Unknown error'));
+          }
         }
 
         port.disconnect();
