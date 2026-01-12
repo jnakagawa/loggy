@@ -1,6 +1,6 @@
 #!/bin/bash
 echo "========================================"
-echo "  Loggy Installer (Developer Mode)"
+echo "  Loggy Installer"
 echo "========================================"
 echo ""
 
@@ -9,6 +9,26 @@ SCRIPT_DIR="$(pwd)"
 
 echo "Project folder: $SCRIPT_DIR"
 echo ""
+
+# Check for Node.js
+if ! command -v node &> /dev/null; then
+    echo "ERROR: Node.js is required but not installed."
+    echo "Please install Node.js from https://nodejs.org/"
+    echo ""
+    read -p "Press Enter to close..."
+    exit 1
+fi
+
+echo "Installing dependencies..."
+npm install --silent
+if [ $? -ne 0 ]; then
+    echo "ERROR: Failed to install dependencies."
+    read -p "Press Enter to close..."
+    exit 1
+fi
+echo "Dependencies installed."
+echo ""
+
 echo "Installing native messaging host..."
 
 mkdir -p "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
@@ -32,4 +52,5 @@ echo "Next steps:"
 echo "1. Reload the Loggy extension in Chrome"
 echo "2. Click the Start Proxy button"
 echo ""
-read -p "Press Enter to close..."
+read -p "Press Enter to close..." || true
+exit 0
