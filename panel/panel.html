@@ -46,6 +46,17 @@
       </div>
     </div>
 
+    <!-- Proxy Suggestion Banner (shown when Chrome API can't read request bodies) -->
+    <div id="proxySuggestionBanner" class="proxy-suggestion-banner" style="display: none;">
+      <span class="proxy-suggestion-icon">⚠️</span>
+      <span class="proxy-suggestion-text">
+        <strong id="proxyNeededSource">Some sources</strong> require the proxy for full event capture
+        <span class="proxy-suggestion-hint">(Chrome can't read compressed/keepalive request bodies)</span>
+      </span>
+      <button id="startProxyFromBanner" class="btn btn-primary btn-small">Start Proxy</button>
+      <button id="dismissProxyBanner" class="btn-close-small" title="Dismiss">×</button>
+    </div>
+
     <!-- Filter Bar -->
     <div class="filter-bar">
       <input
@@ -210,10 +221,34 @@
           <small style="color: #666; font-size: 11px;">Base domain to match (matches all subdomains automatically)</small>
         </div>
 
-        <div class="setting-group">
+        <!-- URL Pattern: Manual input (default mode) -->
+        <div class="setting-group" id="urlPatternManual">
           <label class="setting-label">URL Pattern <span style="color: #999; font-weight: normal;">(optional)</span></label>
           <input type="text" id="sourceUrlPattern" placeholder="e.g., /tracking/*, /api/v*/events">
           <small style="color: #666; font-size: 11px;">Glob pattern for URL path. Use * for wildcard. Helps match specific endpoints.</small>
+        </div>
+
+        <!-- URL Pattern: Slider builder (endpoint config mode) -->
+        <div class="setting-group url-pattern-builder" id="urlPatternBuilder" style="display: none;">
+          <label class="setting-label">URL Pattern</label>
+          <small style="color: #666; font-size: 11px; display: block; margin-bottom: 8px;">
+            Drag slider to set how specific the pattern should be
+          </small>
+          <div class="url-segments" id="urlSegments">
+            <!-- Segments rendered dynamically -->
+          </div>
+          <div class="slider-container">
+            <span class="slider-label">Broad</span>
+            <input type="range" id="patternSlider" min="1" max="3" value="2">
+            <span class="slider-label">Specific</span>
+          </div>
+          <div class="pattern-preview">
+            <span class="pattern-label">Pattern:</span>
+            <code id="patternResult">/rest/trackObserveApi/*</code>
+          </div>
+          <div class="pattern-examples" id="patternExamples">
+            <!-- Will match / won't match examples -->
+          </div>
         </div>
 
         <div class="setting-group">

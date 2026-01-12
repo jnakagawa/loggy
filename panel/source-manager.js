@@ -62,8 +62,23 @@ export class SourceManager {
       // Stats
       sourceStats: document.getElementById('sourceStats'),
       statsEventsCapture: document.getElementById('statsEventsCapture'),
-      statsLastCaptured: document.getElementById('statsLastCaptured')
+      statsLastCaptured: document.getElementById('statsLastCaptured'),
+
+      // URL Pattern Builder (slider mode)
+      urlPatternManual: document.getElementById('urlPatternManual'),
+      urlPatternBuilder: document.getElementById('urlPatternBuilder'),
+      urlSegments: document.getElementById('urlSegments'),
+      patternSlider: document.getElementById('patternSlider'),
+      patternResult: document.getElementById('patternResult'),
+      patternExamples: document.getElementById('patternExamples')
     };
+
+    // Endpoint configuration state
+    this.endpointConfigMode = false;
+    this.endpointUrl = null;
+    this.endpointHostname = null;
+    this.endpointParentName = null;
+    this.urlSegments = [];
 
     this.setupEventListeners();
     this.loadSources();
@@ -118,6 +133,11 @@ export class SourceManager {
       if (this.activeFieldPicker && !e.target.closest('.field-options-dropdown')) {
         this.closeFieldPicker();
       }
+    });
+
+    // URL Pattern slider
+    this.elements.patternSlider?.addEventListener('input', () => {
+      this.updatePatternFromSlider();
     });
   }
 
@@ -210,16 +230,6 @@ export class SourceManager {
   }
 
   renderPendingCard(pending) {
-    let pathSnippet = '';
-    try {
-      pathSnippet = new URL(pending.url).pathname;
-      if (pathSnippet.length > 25) {
-        pathSnippet = pathSnippet.slice(0, 25) + '...';
-      }
-    } catch (e) {
-      pathSnippet = '/...';
-    }
-
     const timeAgo = this.formatTimeAgo(pending.firstSeen);
 
     return `
@@ -227,7 +237,7 @@ export class SourceManager {
         <div class="pending-color-dot"></div>
         <div class="pending-info">
           <div class="pending-domain">${pending.domain}</div>
-          <div class="pending-meta">${pathSnippet} • ${pending.count} event${pending.count !== 1 ? 's' : ''} • ${timeAgo}</div>
+          <div class="pending-meta">${pending.count} event${pending.count !== 1 ? 's' : ''} • ${timeAgo}</div>
         </div>
         <button class="btn btn-primary btn-small pending-add-btn">Add</button>
         <button class="pending-dismiss-btn" title="Dismiss">×</button>
@@ -400,8 +410,13 @@ export class SourceManager {
       this.elements.sourceColor.value = source.color;
       this.elements.sourceEnabled.checked = source.enabled;
 
-      // Try to get a sample event from the buffer for this source
-      await this.loadSampleEventForSource(source.id);
+      // Load sample payload for field pickers
+      // First try stored sample, then fall back to captured events
+      if (source.samplePayload) {
+        this.initFieldPickers(source.samplePayload);
+      } else {
+        await this.loadSampleEventForSource(source.id);
+      }
 
       // Set field mappings if they exist (after loading sample so picker shows value)
       if (source.fieldMappings?.eventName) {
@@ -456,9 +471,9 @@ export class SourceManager {
         // Find an event from this source
         const sampleEvent = response.events.find(e => e._source === sourceId);
         if (sampleEvent) {
-          // Use the event's properties as the sample payload
-          // Combine properties with other relevant fields
-          const samplePayload = {
+          // Use the raw payload if available (preserves original structure)
+          // Fall back to reconstructed payload if no raw payload
+          const samplePayload = sampleEvent._rawPayload || {
             ...sampleEvent.properties,
             event: sampleEvent.event,
             timestamp: sampleEvent.timestamp,
@@ -467,7 +482,7 @@ export class SourceManager {
             type: sampleEvent.type,
             context: sampleEvent.context
           };
-          console.log('[SourceManager] Found sample event for source:', sourceId, samplePayload);
+          console.log('[SourceManager] Loaded sample payload for source:', sourceId, sampleEvent._rawPayload ? '(raw)' : '(reconstructed)');
           this.initFieldPickers(samplePayload);
           return;
         }
@@ -526,6 +541,21 @@ export class SourceManager {
     this.elements.sourceEditorModal.style.display = 'none';
     this.editingSourceId = null;
     this.currentSource = null;
+
+    // Reset endpoint config mode
+    this.endpointConfigMode = false;
+    this.endpointUrl = null;
+    this.endpointHostname = null;
+    this.endpointParentName = null;
+    this.urlSegments = [];
+
+    // Reset URL pattern inputs to default state
+    if (this.elements.urlPatternManual) {
+      this.elements.urlPatternManual.style.display = 'block';
+    }
+    if (this.elements.urlPatternBuilder) {
+      this.elements.urlPatternBuilder.style.display = 'none';
+    }
   }
 
   async saveSource() {
@@ -551,8 +581,20 @@ export class SourceManager {
     // Get URL pattern (optional)
     const urlPattern = this.elements.sourceUrlPattern.value.trim();
 
+    // Generate unique ID for endpoint configurations to avoid collisions
+    let sourceId;
+    if (this.editingSourceId) {
+      sourceId = this.editingSourceId;
+    } else if (this.endpointConfigMode && urlPattern) {
+      // For endpoint configs, use domain + pattern hash to ensure uniqueness
+      const patternHash = urlPattern.replace(/[\/\*]/g, '-').replace(/^-+|-+$/g, '');
+      sourceId = `${domain.replace(/\./g, '-')}-${patternHash}`;
+    } else {
+      sourceId = domain.replace(/\./g, '-');
+    }
+
     const sourceData = {
-      id: this.editingSourceId || domain.replace(/\./g, '-'),
+      id: sourceId,
       name: this.elements.sourceName.value || this.humanizeDomain(domain),
       icon: this.currentSource?.icon || '📊',
       color: this.elements.sourceColor.value,
@@ -748,6 +790,325 @@ export class SourceManager {
   }
 
   // ============================================
+  // Endpoint Configurator Methods
+  // ============================================
+
+  /**
+   * Open the endpoint configurator from an event
+   * @param {object} context - { url, rawPayload, parentSourceId, parentSourceName }
+   */
+  openEndpointConfigurator(context) {
+    console.log('[SourceManager] Opening endpoint configurator:', context);
+
+    this.endpointConfigMode = true;
+    this.endpointUrl = context.url;
+    this.editingSourceId = null;
+    this.currentSource = null;
+
+    // Parse URL segments
+    this.urlSegments = this.parseUrlSegments(context.url);
+    console.log('[SourceManager] URL segments:', this.urlSegments);
+
+    // Extract domain from URL (keep full hostname for display)
+    let domain = '';
+    let fullHostname = '';
+    try {
+      const urlObj = new URL(context.url);
+      fullHostname = urlObj.hostname.replace(/^www\./, '');
+      domain = fullHostname;
+      // Extract base domain for matching (remove subdomains)
+      const parts = fullHostname.split('.');
+      if (parts.length > 2) {
+        domain = parts.slice(-2).join('.');
+      }
+    } catch (e) {
+      console.error('[SourceManager] Error parsing URL:', e);
+    }
+
+    // Store full hostname for slider display
+    this.endpointHostname = fullHostname;
+    this.endpointParentName = context.parentSourceName;
+
+    // Set up the modal
+    this.elements.sourceEditorTitle.textContent = `Add Endpoint: ${context.parentSourceName || 'New'}`;
+
+    this.elements.sourceDomain.value = domain;
+    this.elements.sourceColor.value = this.generateColor(domain + context.url);
+    this.elements.sourceEnabled.checked = true;
+
+    // Show slider builder, hide manual input
+    if (this.elements.urlPatternManual) {
+      this.elements.urlPatternManual.style.display = 'none';
+    }
+    if (this.elements.urlPatternBuilder) {
+      this.elements.urlPatternBuilder.style.display = 'block';
+    }
+
+    // Initialize slider (this will also set the suggested name based on default slider position)
+    this.initPatternSlider();
+
+    // Initialize field pickers with the raw payload
+    if (context.rawPayload) {
+      this.initFieldPickers(context.rawPayload);
+    } else {
+      this.resetFieldPickers();
+    }
+
+    // Hide stats and delete button for new source
+    this.elements.sourceStats.style.display = 'none';
+    this.elements.deleteSourceBtn.style.display = 'none';
+
+    // Show modal
+    this.elements.sourceEditorModal.style.display = 'flex';
+  }
+
+  /**
+   * Parse URL into segments
+   * @param {string} url - Full URL
+   * @returns {string[]} - Array of path segments
+   */
+  parseUrlSegments(url) {
+    try {
+      const urlObj = new URL(url);
+      return urlObj.pathname.split('/').filter(Boolean);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  /**
+   * Initialize the pattern slider
+   */
+  initPatternSlider() {
+    const slider = this.elements.patternSlider;
+    const segmentsContainer = this.elements.urlSegments;
+
+    if (!slider || !segmentsContainer || this.urlSegments.length === 0) {
+      return;
+    }
+
+    // Set slider range: 0 = domain only, 1+ = path segments
+    slider.min = 0;
+    slider.max = this.urlSegments.length;
+    slider.value = Math.max(1, this.urlSegments.length - 1); // Default to second-to-last segment
+
+    // Render segments and update pattern
+    this.renderUrlSegments();
+    this.updatePatternFromSlider();
+  }
+
+  /**
+   * Render URL segments with highlighting based on slider position
+   */
+  renderUrlSegments() {
+    const container = this.elements.urlSegments;
+    const sliderValue = parseInt(this.elements.patternSlider?.value || 0);
+
+    if (!container) return;
+
+    let html = '';
+
+    // Always show domain first (position 0 = domain only)
+    const domainClass = 'url-segment static domain';
+    html += `<span class="${domainClass}">${this.endpointHostname || 'domain'}</span>`;
+
+    // Show path segments
+    this.urlSegments.forEach((segment, index) => {
+      // Position 0 = domain only (all paths wildcard)
+      // Position 1 = first segment static, rest wildcard
+      // etc.
+      const isStatic = index < sliderValue;
+      const className = isStatic ? 'url-segment static' : 'url-segment wildcard';
+      html += `<span class="${className}">/${segment}</span>`;
+    });
+
+    // Add wildcard indicator if not at max
+    if (sliderValue < this.urlSegments.length) {
+      html += `<span class="url-segment wildcard-star">/*</span>`;
+    }
+
+    container.innerHTML = html;
+  }
+
+  /**
+   * Update pattern based on slider position
+   */
+  updatePatternFromSlider() {
+    const sliderValue = parseInt(this.elements.patternSlider?.value || 0);
+
+    // Update segment highlighting
+    this.renderUrlSegments();
+
+    // Build pattern
+    const pattern = this.buildPatternFromSlider(sliderValue);
+
+    // Update pattern display
+    if (this.elements.patternResult) {
+      if (pattern) {
+        this.elements.patternResult.textContent = pattern;
+      } else {
+        this.elements.patternResult.innerHTML = '<em>(domain only - no URL pattern)</em>';
+      }
+    }
+
+    // Update hidden input for saving
+    if (this.elements.sourceUrlPattern) {
+      this.elements.sourceUrlPattern.value = pattern;
+    }
+
+    // Update suggested name based on slider position
+    if (this.endpointConfigMode) {
+      const suggestedName = this.suggestEndpointName(
+        this.endpointParentName,
+        this.urlSegments,
+        sliderValue
+      );
+      this.elements.sourceName.value = suggestedName;
+    }
+
+    // Update match examples
+    this.updatePatternExamples(pattern);
+  }
+
+  /**
+   * Build URL pattern from slider position
+   * @param {number} position - Slider position (0 = domain only, 1+ = path segments)
+   * @returns {string} - URL pattern (empty string for domain only)
+   */
+  buildPatternFromSlider(position) {
+    // Position 0 = domain only, no URL pattern needed
+    if (position === 0) {
+      return '';
+    }
+    if (position >= this.urlSegments.length) {
+      // Exact match (no wildcard)
+      return '/' + this.urlSegments.join('/');
+    }
+    // Partial match with wildcard
+    const staticParts = this.urlSegments.slice(0, position);
+    return '/' + staticParts.join('/') + '/*';
+  }
+
+  /**
+   * Update pattern match examples
+   * @param {string} pattern - Current pattern (empty string for domain only)
+   */
+  updatePatternExamples(pattern) {
+    const container = this.elements.patternExamples;
+    if (!container) return;
+
+    const hostname = this.endpointHostname || 'domain';
+    const originalPath = '/' + this.urlSegments.join('/');
+    const examples = [];
+
+    // Domain-only case (position 0)
+    if (!pattern) {
+      examples.push({
+        path: `${hostname}${originalPath}`,
+        matches: true,
+        note: 'this event'
+      });
+      examples.push({
+        path: `${hostname}/any/other/path`,
+        matches: true,
+        note: 'any path on domain'
+      });
+      examples.push({
+        path: `other.${hostname.split('.').slice(-1)[0]}.com/path`,
+        matches: false,
+        note: 'different domain'
+      });
+    } else {
+      // Original URL always matches
+      examples.push({
+        path: originalPath,
+        matches: true
+      });
+
+      // Generate a "would match" example if using wildcard
+      if (pattern.endsWith('/*')) {
+        const basePath = pattern.slice(0, -2);
+        examples.push({
+          path: basePath + '/otherEndpoint',
+          matches: true
+        });
+      }
+
+      // Generate a "would not match" example
+      if (this.urlSegments.length > 1) {
+        const differentPath = '/' + this.urlSegments[0] + '/differentApi/something';
+        examples.push({
+          path: differentPath,
+          matches: false
+        });
+      }
+    }
+
+    // Render examples
+    let html = '';
+    examples.forEach(ex => {
+      const className = ex.matches ? 'pattern-example match' : 'pattern-example no-match';
+      const icon = ex.matches ? '✓' : '✗';
+      const note = ex.note ? ` <span class="pattern-example-note">(${ex.note})</span>` : '';
+      html += `
+        <div class="${className}">
+          <span class="pattern-example-icon">${icon}</span>
+          <span>${ex.path}${note}</span>
+        </div>
+      `;
+    });
+
+    container.innerHTML = html;
+  }
+
+  /**
+   * Suggest a name for the endpoint based on the pattern's last static segment
+   * @param {string} parentName - Parent source name
+   * @param {string[]} segments - URL segments
+   * @param {number} sliderPosition - Current slider position (determines which segments are static)
+   * @returns {string} - Suggested name
+   */
+  suggestEndpointName(parentName, segments, sliderPosition) {
+    if (segments.length === 0 || sliderPosition === 0) {
+      return parentName || 'New Endpoint';
+    }
+
+    // Use the last STATIC segment (the one right before the wildcard)
+    // sliderPosition tells us how many segments are static
+    const lastStaticIndex = Math.min(sliderPosition, segments.length) - 1;
+    const lastStaticSegment = segments[lastStaticIndex];
+
+    // Skip cryptic/hash-like segments (mostly random characters)
+    // A segment is "meaningful" if it has mostly letters and common separators
+    const isMeaningful = (seg) => {
+      const letterCount = (seg.match(/[a-zA-Z]/g) || []).length;
+      const totalCount = seg.length;
+      // At least 70% letters and not too short
+      return letterCount / totalCount > 0.7 && seg.length > 2;
+    };
+
+    // Find the best segment to use for the name (last meaningful static segment)
+    let nameSegment = lastStaticSegment;
+    for (let i = lastStaticIndex; i >= 0; i--) {
+      if (isMeaningful(segments[i])) {
+        nameSegment = segments[i];
+        break;
+      }
+    }
+
+    // Convert camelCase or snake_case to Title Case
+    const formatted = nameSegment
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/[_-]/g, ' ')
+      .replace(/\b\w/g, c => c.toUpperCase());
+
+    if (parentName) {
+      return `${parentName} - ${formatted}`;
+    }
+    return formatted;
+  }
+
+  // ============================================
   // Field Picker Methods
   // ============================================
 
@@ -889,8 +1250,11 @@ export class SourceManager {
 
   /**
    * Update field picker display
+   * @param {string} fieldType - Type of field
+   * @param {string} value - Field path value
+   * @param {boolean} isAutoDetected - Whether the value was auto-detected (shows hint)
    */
-  updateFieldPickerDisplay(fieldType, value) {
+  updateFieldPickerDisplay(fieldType, value, isAutoDetected = false) {
     const pickerMap = {
       eventName: this.elements.fieldPickerEventName,
       timestamp: this.elements.fieldPickerTimestamp,
@@ -902,21 +1266,18 @@ export class SourceManager {
     const valueSpan = picker.querySelector('.field-picker-value');
 
     if (!value) {
-      // Show auto-detected value if available
-      const autoDetected = this.getAutoDetectedField(fieldType);
-      if (autoDetected) {
-        const sampleValue = this.formatFieldValue(autoDetected.value);
-        valueSpan.innerHTML = `<span class="auto-label">auto</span> → ${autoDetected.key}: <span class="field-sample-inline">${sampleValue}</span>`;
-      } else {
-        valueSpan.textContent = 'auto-detect';
-      }
-      valueSpan.classList.add('auto');
+      // No field detected or available
+      valueSpan.textContent = 'not detected';
+      valueSpan.classList.add('empty');
+      valueSpan.classList.remove('auto');
       picker.classList.remove('selected');
     } else {
-      // Find the field to show sample value
+      // Show the field path with sample value
       const field = this.availableFields.find(f => f.path === value);
       const sample = field ? `: ${this.formatFieldValue(field.value)}` : '';
-      valueSpan.innerHTML = `<strong>${value}</strong><span class="field-sample">${sample}</span>`;
+      const autoHint = isAutoDetected ? '<span class="auto-hint">(detected)</span> ' : '';
+      valueSpan.innerHTML = `${autoHint}<strong>${value}</strong><span class="field-sample">${sample}</span>`;
+      valueSpan.classList.remove('empty');
       valueSpan.classList.remove('auto');
       picker.classList.add('selected');
     }
@@ -1000,7 +1361,9 @@ export class SourceManager {
           fields.push(...this.extractFieldsFromPayload(value[0], `${path}[0]`));
         }
       } else {
-        // For objects, recurse
+        // For objects, add the object itself (useful for propertyContainer selection)
+        // then recurse into its children
+        fields.push({ path, key, value, type: 'object' });
         fields.push(...this.extractFieldsFromPayload(value, path));
       }
     }
@@ -1010,6 +1373,7 @@ export class SourceManager {
 
   /**
    * Initialize field pickers with sample payload
+   * Auto-detects fields and SAVES them concretely (not left empty)
    */
   initFieldPickers(payload) {
     console.log('[SourceManager] initFieldPickers called with:', payload);
@@ -1017,16 +1381,21 @@ export class SourceManager {
     this.availableFields = payload ? this.extractFieldsFromPayload(payload) : [];
     console.log('[SourceManager] Extracted fields:', this.availableFields);
 
-    // Reset all pickers to auto-detect
-    this.elements.fieldEventName.value = '';
-    this.elements.fieldTimestamp.value = '';
-    this.elements.fieldUserId.value = '';
-    this.elements.fieldPropertyContainer.value = '';
+    // Auto-detect and SET concrete values (not empty)
+    const fieldTypes = ['eventName', 'timestamp', 'userId', 'propertyContainer'];
+    const inputMap = {
+      eventName: this.elements.fieldEventName,
+      timestamp: this.elements.fieldTimestamp,
+      userId: this.elements.fieldUserId,
+      propertyContainer: this.elements.fieldPropertyContainer
+    };
 
-    this.updateFieldPickerDisplay('eventName', '');
-    this.updateFieldPickerDisplay('timestamp', '');
-    this.updateFieldPickerDisplay('userId', '');
-    this.updateFieldPickerDisplay('propertyContainer', '');
+    for (const fieldType of fieldTypes) {
+      const detected = this.getAutoDetectedField(fieldType);
+      const value = detected ? detected.path : '';
+      inputMap[fieldType].value = value;
+      this.updateFieldPickerDisplay(fieldType, value, detected !== null);
+    }
 
     console.log('[SourceManager] Initialized field pickers with', this.availableFields.length, 'fields');
   }
@@ -1043,9 +1412,9 @@ export class SourceManager {
     this.elements.fieldUserId.value = '';
     this.elements.fieldPropertyContainer.value = '';
 
-    this.updateFieldPickerDisplay('eventName', '');
-    this.updateFieldPickerDisplay('timestamp', '');
-    this.updateFieldPickerDisplay('userId', '');
-    this.updateFieldPickerDisplay('propertyContainer', '');
+    this.updateFieldPickerDisplay('eventName', '', false);
+    this.updateFieldPickerDisplay('timestamp', '', false);
+    this.updateFieldPickerDisplay('userId', '', false);
+    this.updateFieldPickerDisplay('propertyContainer', '', false);
   }
 }
