@@ -12,3 +12,7 @@ native-host/proxy.log
 
 # Temporary Chrome profile
 /tmp/chrome-proxy-profile/
+
+# Build outputs
+dist/
+loggy-extension.zip
