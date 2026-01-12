@@ -88,6 +88,9 @@ class AnalyticsLoggerUI {
     // Check if native messaging host is available
     this.checkNativeHost();
 
+    // Check if proxy server is actually running (ping it)
+    await this.checkProxyRunning();
+
     // Load sources for filter dropdown
     await this.loadSourcesFilter();
 
@@ -104,11 +107,27 @@ class AnalyticsLoggerUI {
   async checkAutoPauseState() {
     try {
       const response = await chrome.runtime.sendMessage({ action: 'getSettings' });
-      if (response.success && response.autoPaused) {
-        this.isPaused = true;
-        this.isAutoPaused = true;
-        this.updatePauseButton();
-        console.log('[Panel] Restored auto-paused state');
+      if (response.success) {
+        // Sync panel state with actual extension enabled state
+        if (!response.settings.enabled) {
+          if (response.autoPaused) {
+            // Was auto-paused - will be auto-resumed by background on connect
+            this.isPaused = true;
+            this.isAutoPaused = true;
+            console.log('[Panel] Extension was auto-paused');
+          } else {
+            // Extension is disabled but not auto-paused (manual or stale state)
+            // Auto-enable since user opened the panel (intent to use)
+            console.log('[Panel] Extension disabled, auto-enabling on panel open');
+            await chrome.runtime.sendMessage({
+              action: 'updateSettings',
+              settings: { enabled: true }
+            });
+            this.isPaused = false;
+            this.isAutoPaused = false;
+          }
+          this.updatePauseButton();
+        }
       }
     } catch (err) {
       // Silently fail
@@ -323,6 +342,39 @@ class AnalyticsLoggerUI {
         resolve(false);
       }
     });
+  }
+
+  async checkProxyRunning() {
+    try {
+      // Ping the proxy server to see if it's actually running
+      const response = await fetch('http://localhost:8889/events', {
+        method: 'GET',
+        signal: AbortSignal.timeout(2000)
+      });
+
+      if (response.ok) {
+        // Proxy is running
+        this.proxyRunning = true;
+        console.log('[Panel] Proxy server is running');
+      } else {
+        this.proxyRunning = false;
+      }
+    } catch (err) {
+      // Proxy not reachable - make sure useProxy setting is false
+      this.proxyRunning = false;
+
+      // If settings say proxy is enabled but it's not running, disable it
+      const settingsResponse = await chrome.runtime.sendMessage({ action: 'getSettings' });
+      if (settingsResponse.success && settingsResponse.settings.useProxy) {
+        console.log('[Panel] Proxy not running but useProxy was true - disabling');
+        await chrome.runtime.sendMessage({
+          action: 'updateSettings',
+          settings: { useProxy: false }
+        });
+      }
+    }
+
+    this.updateProxyMainUI();
   }
 
   updateProxyMainUI() {
@@ -545,6 +597,12 @@ class AnalyticsLoggerUI {
           this.sourceManager.loadPendingSources();
         }
         this.checkForSuggestions();
+      } else if (message.action === 'autoResumed') {
+        // Background auto-resumed on panel open
+        console.log('[Panel] Auto-resumed by background on panel open');
+        this.isPaused = false;
+        this.isAutoPaused = false;
+        this.updatePauseButton();
       }
     });
 

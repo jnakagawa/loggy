@@ -41,12 +41,17 @@ async function initialize() {
   console.log('[Analytics Logger] Loaded', configStats.totalSources, 'analytics sources');
 
   // Load settings first
-  const result = await chrome.storage.local.get('settings');
+  const result = await chrome.storage.local.get(['settings', 'autoPaused']);
   if (result.settings) {
     settings = { ...settings, ...result.settings };
     console.log('[Analytics Logger] Loaded settings:', settings);
   } else {
     console.log('[Analytics Logger] Using default settings:', settings);
+  }
+
+  // Restore auto-pause state (survives service worker restarts)
+  if (result.autoPaused !== undefined) {
+    autoPaused = result.autoPaused;
   }
 
   // Load persisted events if enabled
@@ -158,44 +163,58 @@ chrome.webRequest.onBeforeRequest.addListener(
       return;
     }
 
-    // Skip if proxy mode is enabled (proxy handles capture)
-    if (settings.useProxy) {
-      return;
-    }
-
     // Skip if not a POST request (most analytics use POST)
     if (details.method !== 'POST') {
       return;
     }
 
+    // Debug: Log Airbnb requests
+    if (details.url.includes('airbnb')) {
+      console.log('[Analytics Logger] [DEBUG] Airbnb request:', details.url);
+      console.log('[Analytics Logger] [DEBUG] Has requestBody:', !!details.requestBody);
+      if (details.requestBody) {
+        console.log('[Analytics Logger] [DEBUG] requestBody keys:', Object.keys(details.requestBody));
+        if (details.requestBody.raw) {
+          console.log('[Analytics Logger] [DEBUG] raw chunks:', details.requestBody.raw.length);
+          details.requestBody.raw.forEach((chunk, i) => {
+            console.log(`[Analytics Logger] [DEBUG] chunk ${i} has bytes:`, !!chunk.bytes, chunk.bytes ? chunk.bytes.byteLength : 0);
+          });
+        }
+      }
+    }
+
     // Find matching source using ConfigManager
     const source = configManager.findSourceForUrl(details.url);
+
+    // Debug: Log source matching for Airbnb
+    if (details.url.includes('airbnb')) {
+      console.log('[Analytics Logger] [DEBUG] Source match result:', source ? source.name : 'NO MATCH');
+    }
 
     if (!source) {
       // Track unmatched analytics requests for suggestions (if enabled)
       if (settings.detectNewSources && looksLikeAnalyticsEndpoint(details.url) && details.requestBody) {
-        try {
-          const payload = AnalyticsParser.decodeRequestBody(details.requestBody);
-          configManager.trackUnmatchedRequest(details.url, payload);
-          notifyPanels('unmatchedDomainsUpdated', {});
-        } catch {
+        AnalyticsParser.decodeRequestBodyAsync(details.requestBody).then(payload => {
+          if (payload) {
+            configManager.trackUnmatchedRequest(details.url, payload);
+            notifyPanels('unmatchedDomainsUpdated', {});
+          }
+        }).catch(() => {
           // Ignore parsing errors
-        }
+        });
       }
       return;
     }
 
     console.log(`[Analytics Logger] ✅ Matched source "${source.name}" for:`, details.url);
 
-    // Parse the request using the source's parser
-    try {
-      const events = AnalyticsParser.parseRequest(
-        details.url,
-        details.requestBody,
-        details.initiator,
-        source
-      );
-
+    // Parse the request using the source's parser (async for decompression)
+    AnalyticsParser.parseRequest(
+      details.url,
+      details.requestBody,
+      details.initiator,
+      source
+    ).then(events => {
       if (events.length > 0) {
         console.log(`[Analytics Logger] ✓ Captured ${events.length} event(s) from ${source.name}`);
 
@@ -231,13 +250,13 @@ chrome.webRequest.onBeforeRequest.addListener(
       } else {
         console.log('[Analytics Logger] No events extracted from request');
       }
-    } catch (err) {
+    }).catch(err => {
       console.error('[Analytics Logger] Error parsing request:', err);
       console.error('[Analytics Logger] Request details:', {
         url: details.url,
         source: source.name
       });
-    }
+    });
   },
   {
     urls: ['<all_urls>']
@@ -496,6 +515,17 @@ chrome.runtime.onConnect.addListener((port) => {
     console.log('[Analytics Logger] Panel connected');
     connectedPanels.add(port);
 
+    // Auto-resume if we were auto-paused (user opening panel = intent to use)
+    if (autoPaused && !settings.enabled) {
+      autoPaused = false;
+      settings.enabled = true;
+      lastEventTime = Date.now();
+      chrome.storage.local.set({ settings, autoPaused });
+      console.log('[Analytics Logger] Auto-resumed on panel open (was auto-paused)');
+      // Notify the panel so it can update UI
+      port.postMessage({ action: 'autoResumed', data: {} });
+    }
+
     port.onDisconnect.addListener(() => {
       console.log('[Analytics Logger] Panel disconnected');
       connectedPanels.delete(port);
@@ -527,6 +557,42 @@ setInterval(() => {
   }
 }, 60000); // Every minute
 
+// Stop proxy server via native messaging
+function stopProxyServer() {
+  try {
+    const port = chrome.runtime.connectNative('com.analytics_logger.proxy');
+
+    port.postMessage({ action: 'stopProxy' });
+
+    port.onMessage.addListener((response) => {
+      if (response.success) {
+        console.log('[Analytics Logger] Proxy server stopped');
+        settings.useProxy = false;
+        chrome.storage.local.set({ settings });
+        stopProxyPolling();
+      } else {
+        console.log('[Analytics Logger] Failed to stop proxy:', response.error);
+      }
+      port.disconnect();
+    });
+
+    port.onDisconnect.addListener(() => {
+      // Native host not available - just disable polling
+      if (chrome.runtime.lastError) {
+        console.log('[Analytics Logger] Native host not available, disabling proxy polling');
+        settings.useProxy = false;
+        chrome.storage.local.set({ settings });
+        stopProxyPolling();
+      }
+    });
+  } catch (err) {
+    console.log('[Analytics Logger] Error stopping proxy:', err.message);
+    settings.useProxy = false;
+    chrome.storage.local.set({ settings });
+    stopProxyPolling();
+  }
+}
+
 // Periodic auto-pause check (every 5 minutes)
 setInterval(() => {
   if (settings.autoPauseHours > 0 && settings.enabled && !autoPaused) {
@@ -535,9 +601,15 @@ setInterval(() => {
     if (hoursSinceLastEvent >= settings.autoPauseHours) {
       autoPaused = true;
       settings.enabled = false;
-      chrome.storage.local.set({ settings });
+      chrome.storage.local.set({ settings, autoPaused });
 
       console.log(`[Analytics Logger] Auto-paused after ${settings.autoPauseHours} hour(s) of inactivity`);
+
+      // Stop proxy server if it was running
+      if (settings.useProxy) {
+        console.log('[Analytics Logger] Stopping proxy server due to auto-pause');
+        stopProxyServer();
+      }
 
       // Notify open panels
       notifyPanels('autoPaused', {
