@@ -45,7 +45,7 @@ async function runInstaller() {
         // PACKED EXTENSION - Full path is known!
         const extensionPath = `$HOME/Library/Application Support/Google/Chrome/Default/Extensions/${extensionId}/${version}`;
 
-        command = `mkdir -p "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts" && cat > "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.analytics_logger.proxy.json" << 'EOF'
+        command = `cd "${extensionPath}" && npm install && mkdir -p "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts" && cat > "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.analytics_logger.proxy.json" << 'EOF'
 {
   "name": "com.analytics_logger.proxy",
   "description": "Analytics Logger Proxy Control",
