@@ -94,22 +94,30 @@ export class ConfigManager {
   }
 
   /**
-   * Find the best matching source for a URL using domain matching
+   * Find the best matching source for a URL using priority matching
+   * More specific matches (domain + URL pattern) win over generic domain-only matches
    * @param {string} url - URL to match
-   * @returns {SourceConfig|null} - Matching source, or null if no match
+   * @returns {SourceConfig|null} - Best matching source, or null if no match
    */
   findSourceForUrl(url) {
     const urlDomain = SourceConfig.extractBaseDomainFromUrl(url);
     if (!urlDomain) return null;
 
-    // Find source with matching domain
+    let bestMatch = null;
+    let bestScore = 0;
+
+    // Find source with highest match score
     for (const [id, source] of this.sources) {
-      if (source.enabled && source.matches(url)) {
-        return source;
+      if (!source.enabled) continue;
+
+      const score = source.getMatchScore(url);
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = source;
       }
     }
 
-    return null;
+    return bestMatch;
   }
 
   /**

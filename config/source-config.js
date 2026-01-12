@@ -16,6 +16,7 @@ export class SourceConfig {
     this.color = config.color || this.generateDefaultColor();
     this.icon = config.icon || '📊';
     this.domain = config.domain || ''; // Base domain to match (e.g., "joinhoney.com")
+    this.urlPattern = config.urlPattern || null; // Optional glob pattern for URL path (e.g., "/tracking/*")
     this.fieldMappings = config.fieldMappings || {}; // Optional overrides only
     this.createdBy = config.createdBy || 'system';
     this.createdAt = config.createdAt || new Date().toISOString();
@@ -117,13 +118,65 @@ export class SourceConfig {
   /**
    * Check if this source matches a URL
    * @param {string} url - URL to test
-   * @returns {boolean} - True if URL's base domain matches this source's domain
+   * @returns {boolean} - True if URL matches this source's domain and optional path pattern
    */
   matches(url) {
     if (!this.enabled || !this.domain) return false;
 
-    const urlDomain = SourceConfig.extractBaseDomainFromUrl(url);
-    return urlDomain === this.domain.toLowerCase();
+    try {
+      const urlObj = new URL(url);
+      const urlDomain = SourceConfig.extractBaseDomain(urlObj.hostname);
+
+      // Domain must match
+      if (urlDomain !== this.domain.toLowerCase()) return false;
+
+      // If urlPattern is specified, path must also match
+      if (this.urlPattern) {
+        return this.matchesPattern(urlObj.pathname, this.urlPattern);
+      }
+
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Check if a URL path matches a glob pattern
+   * @param {string} path - URL path to test
+   * @param {string} pattern - Glob pattern like /tracking/* or /api/v1/events
+   * @returns {boolean} - True if path matches pattern
+   */
+  matchesPattern(path, pattern) {
+    const regex = SourceConfig.globToRegex(pattern);
+    return regex.test(path);
+  }
+
+  /**
+   * Get match score for priority matching
+   * Higher score = more specific match
+   * @param {string} url - URL to test
+   * @returns {number} - 0 = no match, 1 = domain only, 2 = domain + pattern
+   */
+  getMatchScore(url) {
+    if (!this.matches(url)) return 0;
+    return this.urlPattern ? 2 : 1;
+  }
+
+  /**
+   * Convert glob pattern to regex
+   * Supports: * (any chars except /), ** (any chars including /)
+   * @param {string} pattern - Glob pattern
+   * @returns {RegExp} - Compiled regex
+   */
+  static globToRegex(pattern) {
+    // Escape regex special chars except *
+    const escaped = pattern
+      .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+      .replace(/\*\*/g, '\u0000')  // Temp placeholder for **
+      .replace(/\*/g, '[^/]*')      // * matches anything except /
+      .replace(/\u0000/g, '.*');    // ** matches anything including /
+    return new RegExp(`^${escaped}$`);
   }
 
   /**
@@ -158,7 +211,7 @@ export class SourceConfig {
    * @returns {object} - JSON representation
    */
   toJSON() {
-    return {
+    const json = {
       id: this.id,
       name: this.name,
       enabled: this.enabled,
@@ -170,6 +223,11 @@ export class SourceConfig {
       createdAt: this.createdAt,
       stats: this.stats
     };
+    // Only include urlPattern if set (keep JSON clean)
+    if (this.urlPattern) {
+      json.urlPattern = this.urlPattern;
+    }
+    return json;
   }
 
   /**

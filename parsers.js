@@ -1,29 +1,82 @@
 // Smart Universal Analytics Parser
-// Auto-detects event structure without hardcoded parser types
-// Uses intelligent field detection with optional overrides
+// Auto-detects event structure with user-configurable field mappings
+// Supports nested paths and propertyContainer for envelope-style payloads
 
 export class AnalyticsParser {
-  // Field detection order - checked in sequence until found
-  static FIELD_DETECTION = {
-    eventName: ['event', 'eventName', 'event_name', 'code', 'action', 'name', 'type', 'eventType'],
-    timestamp: ['timestamp', 'client_ts', 'client_timestamp', 'time', 'ts', 'sentAt', 'sent_at', 'created_at'],
-    userId: ['userId', 'user_id', 'uid', 'anonymousId', 'anonymous_id', 'anonId'],
-    properties: ['properties', 'props', 'data', 'payload', 'params', 'attributes']
+  // Field paths to search for auto-detection (supports nested paths)
+  // Ordered by priority: most common/standard patterns first
+  static FIELD_PATHS = {
+    eventName: [
+      // Direct fields (most common)
+      'event',
+      'eventName',
+      'event_name',
+      'name',
+      'action',
+      'code',
+      'type',
+      'eventType',
+      // Nested in common wrapper fields
+      'event_data.event',
+      'event_data.eventName',
+      'event_data.event_name',
+      'data.event',
+      'data.eventName'
+    ],
+    timestamp: [
+      // Direct fields
+      'timestamp',
+      'time',
+      'ts',
+      'sentAt',
+      'sent_at',
+      'created_at',
+      'client_ts',
+      'client_timestamp',
+      // Nested in context
+      'context.timestamp',
+      'context.time',
+      // Nested in wrappers
+      'event_data.context.timestamp',
+      'event_data.timestamp',
+      'data.timestamp',
+      'data.context.timestamp'
+    ],
+    userId: [
+      // Direct fields
+      'userId',
+      'user_id',
+      'uid',
+      'anonymousId',
+      'anonymous_id',
+      'anonId',
+      // Nested in context
+      'context.userId',
+      'context.user_id',
+      // Nested in wrappers
+      'event_data.context.user_id',
+      'event_data.user_id',
+      'data.user_id'
+    ]
   };
 
-  // Array field detection - where events might be stored
-  static EVENT_ARRAY_FIELDS = ['batch', 'events', 'data', 'items', 'records'];
+  // Property containers - where event payload might live
+  static PROPERTY_CONTAINERS = ['properties', 'props', 'event_data', 'data', 'payload', 'params', 'attributes'];
+
+  // Array field detection - where batched events might be stored
+  static EVENT_ARRAY_FIELDS = ['batch', 'events', 'data', 'items', 'records', 'messages'];
 
   /**
-   * Main parsing function - smart auto-detection
+   * Main parsing function - smart auto-detection (async for decompression)
    * @param {string} url - Request URL
    * @param {object} requestBody - Request body
    * @param {string} initiator - Request initiator
    * @param {SourceConfig} source - Source configuration (optional, for field overrides)
    */
-  static parseRequest(url, requestBody, initiator, source = null) {
+  static async parseRequest(url, requestBody, initiator, source = null) {
     try {
-      const data = this.decodeRequestBody(requestBody);
+      const data = await this.decodeRequestBodyAsync(requestBody);
+
       if (!data || typeof data !== 'object') {
         return [];
       }
@@ -97,9 +150,9 @@ export class AnalyticsParser {
 
   /**
    * Extract a single event from data
-   * Handles nested event structures (envelope patterns like Airbnb's Jitney)
+   * Uses fieldMappings paths if configured, otherwise auto-detects
    * @param {object} item - Event data
-   * @param {object} fieldMappings - Optional field overrides
+   * @param {object} fieldMappings - Field path overrides (eventName, timestamp, userId, propertyContainer)
    * @param {object} parentData - Parent data for context extraction
    */
   static extractEvent(item, fieldMappings = {}, parentData = null) {
@@ -107,47 +160,52 @@ export class AnalyticsParser {
       return null;
     }
 
-    // Check for nested event_data structure (envelope pattern)
-    // Many analytics systems wrap events: { event_name: "envelope", event_data: { event_name: "actual", ... } }
-    const eventData = item.event_data && typeof item.event_data === 'object' ? item.event_data : null;
+    // Extract event name using configured path or auto-detect
+    const eventName = this.extractField(item, 'eventName', fieldMappings);
 
-    // Extract event name - prefer inner event_data.event_name over outer
-    let eventName;
-    if (eventData) {
-      eventName = this.extractField(eventData, 'eventName', fieldMappings) ||
-                  this.extractField(item, 'eventName', fieldMappings);
-    } else {
-      eventName = this.extractField(item, 'eventName', fieldMappings);
-    }
+    // Extract timestamp using configured path or auto-detect
+    const timestamp = this.extractField(item, 'timestamp', fieldMappings) || new Date().toISOString();
 
-    // Extract timestamp - check both levels and nested context
-    const timestamp = this.extractField(eventData || item, 'timestamp', fieldMappings) ||
-                      eventData?.context?.timestamp ||
-                      item.context?.timestamp ||
-                      new Date().toISOString();
-
-    // Extract userId - check nested context
+    // Extract userId using configured path or auto-detect
     const userId = this.extractField(item, 'userId', fieldMappings) ||
-                   this.extractField(eventData || {}, 'userId', fieldMappings) ||
-                   eventData?.context?.user_id ||
-                   item.context?.user_id ||
                    (parentData ? this.extractField(parentData, 'userId', fieldMappings) : null);
 
-    // Get properties - merge from both levels if nested
+    // Get properties from configured container path or auto-detect
     let properties;
-    if (eventData) {
-      // For nested events, merge properties from both levels
-      const outerProps = this.extractProperties(item);
-      const innerProps = this.extractProperties(eventData);
-      properties = { ...outerProps, ...innerProps };
+    let context = {};
+
+    if (fieldMappings.propertyContainer) {
+      // User specified where properties live - use that path
+      const container = this.getNestedValue(item, fieldMappings.propertyContainer);
+      if (container && typeof container === 'object') {
+        // Extract context separately if it exists in the container
+        context = container.context || {};
+        properties = this.extractProperties(container, ['context']);
+      } else {
+        properties = {};
+      }
     } else {
-      // Get properties - either from a nested properties field or the item itself
-      const propertiesField = this.findField(item, this.FIELD_DETECTION.properties);
-      properties = propertiesField ? item[propertiesField] : this.extractProperties(item);
+      // Auto-detect: look for known property container fields
+      const containerField = this.findField(item, this.PROPERTY_CONTAINERS);
+      if (containerField) {
+        const container = item[containerField];
+        if (container && typeof container === 'object') {
+          context = container.context || item.context || {};
+          properties = this.extractProperties(container, ['context']);
+        } else {
+          properties = this.extractProperties(item);
+        }
+      } else {
+        // No container found - use item itself as properties
+        context = item.context || parentData?.context || {};
+        properties = this.extractProperties(item);
+      }
     }
 
-    // Extract context from nested structure
-    const context = eventData?.context || item.context || parentData?.context || {};
+    // Merge parent context if available
+    if (parentData?.context && Object.keys(context).length === 0) {
+      context = parentData.context;
+    }
 
     return {
       id: this.generateId(),
@@ -156,7 +214,7 @@ export class AnalyticsParser {
       properties: properties,
       context: context,
       userId: userId,
-      anonymousId: item.anonymousId || eventData?.anonymousId || parentData?.anonymousId,
+      anonymousId: item.anonymousId || parentData?.anonymousId,
       type: item.type || 'track'
     };
   }
@@ -165,21 +223,21 @@ export class AnalyticsParser {
    * Extract a field using mapping override or auto-detection
    * @param {object} data - Data to extract from
    * @param {string} fieldType - Type of field ('eventName', 'timestamp', 'userId')
-   * @param {object} fieldMappings - Optional overrides
+   * @param {object} fieldMappings - Optional overrides with exact paths
    */
   static extractField(data, fieldType, fieldMappings = {}) {
-    // Check for override mapping first
+    // Check for configured path first (user-specified)
     if (fieldMappings[fieldType]) {
-      const mappedField = fieldMappings[fieldType];
-      const value = this.getNestedValue(data, mappedField);
-      if (value !== undefined) {
+      const mappedPath = fieldMappings[fieldType];
+      const value = this.getNestedValue(data, mappedPath);
+      if (value !== undefined && value !== null) {
         return value;
       }
     }
 
-    // Fall back to auto-detection
-    const detectionFields = this.FIELD_DETECTION[fieldType] || [];
-    return this.findFieldValue(data, detectionFields);
+    // Fall back to auto-detection using known paths
+    const detectionPaths = this.FIELD_PATHS[fieldType] || [];
+    return this.findFieldValue(data, detectionPaths);
   }
 
   /**
@@ -266,12 +324,15 @@ export class AnalyticsParser {
 
   /**
    * Extract properties from object, excluding metadata fields
+   * @param {object} obj - Object to extract properties from
+   * @param {Array<string>} additionalExclude - Additional keys to exclude
    */
-  static extractProperties(obj) {
+  static extractProperties(obj, additionalExclude = []) {
     const excludeKeys = [
       'id', 'timestamp', 'time', 'ts', 'sentAt', 'sent_at', 'created_at',
       'userId', 'user_id', 'anonymousId', 'anonymous_id',
-      'context', '_metadata', '_parser', '_source'
+      'context', '_metadata', '_parser', '_source',
+      ...additionalExclude
     ];
 
     const props = {};
@@ -284,7 +345,107 @@ export class AnalyticsParser {
   }
 
   /**
-   * Decode request body from various formats
+   * Detect compression type from bytes
+   */
+  static detectCompression(bytes) {
+    if (bytes.length < 2) return null;
+
+    // Gzip: 0x1f 0x8b
+    if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
+      return 'gzip';
+    }
+
+    // Deflate: 0x78 (0x01, 0x5e, 0x9c, 0xda)
+    if (bytes[0] === 0x78 && (bytes[1] === 0x01 || bytes[1] === 0x5e || bytes[1] === 0x9c || bytes[1] === 0xda)) {
+      return 'deflate';
+    }
+
+    return null;
+  }
+
+  /**
+   * Decompress bytes using DecompressionStream API
+   */
+  static async decompressBytes(bytes, format) {
+    try {
+      const stream = new Response(bytes).body.pipeThrough(new DecompressionStream(format));
+      const decompressed = await new Response(stream).arrayBuffer();
+      return new Uint8Array(decompressed);
+    } catch (e) {
+      console.log('[AnalyticsParser] [DEBUG] Decompression failed:', e.message);
+      return null;
+    }
+  }
+
+  /**
+   * Decode request body from various formats (async for decompression support)
+   */
+  static async decodeRequestBodyAsync(requestBody) {
+    if (!requestBody) return null;
+
+    // If already an object, return it
+    if (typeof requestBody === 'object' && !requestBody.raw) {
+      return requestBody;
+    }
+
+    // Handle FormData
+    if (requestBody.formData) {
+      const formData = {};
+      for (const [key, values] of Object.entries(requestBody.formData)) {
+        formData[key] = values[0];
+      }
+      return formData;
+    }
+
+    // Handle raw data - concatenate ALL chunks (Chrome splits large payloads)
+    if (requestBody.raw && requestBody.raw.length > 0) {
+      // Calculate total size and allocate buffer
+      let totalLength = 0;
+      const chunks = [];
+      for (const chunk of requestBody.raw) {
+        if (chunk.bytes) {
+          const arr = new Uint8Array(chunk.bytes);
+          chunks.push(arr);
+          totalLength += arr.length;
+        }
+      }
+
+      // Concatenate all chunks into single buffer
+      let allBytes = new Uint8Array(totalLength);
+      let offset = 0;
+      for (const chunk of chunks) {
+        allBytes.set(chunk, offset);
+        offset += chunk.length;
+      }
+
+      // Check for compression and decompress if needed
+      const compression = this.detectCompression(allBytes);
+      if (compression) {
+        console.log('[AnalyticsParser] [DEBUG] Detected compression:', compression);
+        const decompressed = await this.decompressBytes(allBytes, compression);
+        if (decompressed) {
+          allBytes = decompressed;
+          console.log('[AnalyticsParser] [DEBUG] Decompressed:', totalLength, '->', allBytes.length, 'bytes');
+        }
+      }
+
+      const decoder = new TextDecoder('utf-8');
+      const text = decoder.decode(allBytes);
+
+      // Try to parse as JSON
+      try {
+        return JSON.parse(text);
+      } catch {
+        // Return as string if not JSON
+        return text;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Decode request body from various formats (sync version, no decompression)
    */
   static decodeRequestBody(requestBody) {
     if (!requestBody) return null;
@@ -388,16 +549,27 @@ export class AnalyticsParser {
     // Detect fields from sample event
     const sample = result.sampleEvent || decoded;
 
-    for (const [fieldType, detectionFields] of Object.entries(this.FIELD_DETECTION)) {
-      if (fieldType === 'properties') continue; // Skip properties detection
-
-      const foundField = this.findField(sample, detectionFields);
-      if (foundField) {
-        result.fields[fieldType] = {
-          detected: foundField,
-          value: sample[foundField]
-        };
+    for (const [fieldType, detectionPaths] of Object.entries(this.FIELD_PATHS)) {
+      // Find first path that has a value
+      for (const path of detectionPaths) {
+        const value = this.getNestedValue(sample, path);
+        if (value !== undefined && value !== null) {
+          result.fields[fieldType] = {
+            detected: path,
+            value: value
+          };
+          break;
+        }
       }
+    }
+
+    // Also detect property container
+    const containerField = this.findField(sample, this.PROPERTY_CONTAINERS);
+    if (containerField) {
+      result.fields.propertyContainer = {
+        detected: containerField,
+        value: `[${typeof sample[containerField]}]`
+      };
     }
 
     return result;

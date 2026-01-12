@@ -44,16 +44,19 @@ export class SourceManager {
       // Source editor fields
       sourceName: document.getElementById('sourceName'),
       sourceDomain: document.getElementById('sourceDomain'),
+      sourceUrlPattern: document.getElementById('sourceUrlPattern'),
       sourceColor: document.getElementById('sourceColor'),
       sourceEnabled: document.getElementById('sourceEnabled'),
       fieldEventName: document.getElementById('fieldEventName'),
       fieldTimestamp: document.getElementById('fieldTimestamp'),
       fieldUserId: document.getElementById('fieldUserId'),
+      fieldPropertyContainer: document.getElementById('fieldPropertyContainer'),
 
       // Field pickers
       fieldPickerEventName: document.getElementById('fieldPickerEventName'),
       fieldPickerTimestamp: document.getElementById('fieldPickerTimestamp'),
       fieldPickerUserId: document.getElementById('fieldPickerUserId'),
+      fieldPickerPropertyContainer: document.getElementById('fieldPickerPropertyContainer'),
       fieldOptionsDropdown: document.getElementById('fieldOptionsDropdown'),
 
       // Stats
@@ -104,6 +107,10 @@ export class SourceManager {
     this.elements.fieldPickerUserId?.addEventListener('click', (e) => {
       e.stopPropagation();
       this.toggleFieldPicker('userId', this.elements.fieldPickerUserId);
+    });
+    this.elements.fieldPickerPropertyContainer?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggleFieldPicker('propertyContainer', this.elements.fieldPickerPropertyContainer);
     });
 
     // Close dropdown when clicking outside
@@ -389,6 +396,7 @@ export class SourceManager {
       this.elements.sourceEditorTitle.textContent = `Edit Source: ${source.name}`;
       this.elements.sourceName.value = source.name;
       this.elements.sourceDomain.value = source.domain || '';
+      this.elements.sourceUrlPattern.value = source.urlPattern || '';
       this.elements.sourceColor.value = source.color;
       this.elements.sourceEnabled.checked = source.enabled;
 
@@ -408,6 +416,10 @@ export class SourceManager {
         this.elements.fieldUserId.value = source.fieldMappings.userId;
         this.updateFieldPickerDisplay('userId', source.fieldMappings.userId);
       }
+      if (source.fieldMappings?.propertyContainer) {
+        this.elements.fieldPropertyContainer.value = source.fieldMappings.propertyContainer;
+        this.updateFieldPickerDisplay('propertyContainer', source.fieldMappings.propertyContainer);
+      }
 
       // Show stats
       this.elements.sourceStats.style.display = 'block';
@@ -423,6 +435,7 @@ export class SourceManager {
       this.elements.sourceEditorTitle.textContent = 'Add New Source';
       this.elements.sourceName.value = '';
       this.elements.sourceDomain.value = '';
+      this.elements.sourceUrlPattern.value = '';
       this.elements.sourceColor.value = '#6366F1';
       this.elements.sourceEnabled.checked = true;
       this.resetFieldPickers();
@@ -478,6 +491,7 @@ export class SourceManager {
     this.elements.sourceEditorTitle.textContent = 'Add New Source';
     this.elements.sourceName.value = this.humanizeDomain(domain);
     this.elements.sourceDomain.value = domain;
+    this.elements.sourceUrlPattern.value = '';
     this.elements.sourceColor.value = this.generateColor(domain);
     this.elements.sourceEnabled.checked = true;
     this.elements.sourceStats.style.display = 'none';
@@ -527,10 +541,15 @@ export class SourceManager {
     const eventName = this.elements.fieldEventName.value.trim();
     const timestamp = this.elements.fieldTimestamp.value.trim();
     const userId = this.elements.fieldUserId.value.trim();
+    const propertyContainer = this.elements.fieldPropertyContainer.value.trim();
 
     if (eventName) fieldMappings.eventName = eventName;
     if (timestamp) fieldMappings.timestamp = timestamp;
     if (userId) fieldMappings.userId = userId;
+    if (propertyContainer) fieldMappings.propertyContainer = propertyContainer;
+
+    // Get URL pattern (optional)
+    const urlPattern = this.elements.sourceUrlPattern.value.trim();
 
     const sourceData = {
       id: this.editingSourceId || domain.replace(/\./g, '-'),
@@ -544,6 +563,11 @@ export class SourceManager {
       createdAt: this.currentSource?.createdAt || new Date().toISOString(),
       stats: this.currentSource?.stats || { eventsCapture: 0, lastCaptured: null }
     };
+
+    // Only include urlPattern if set
+    if (urlPattern) {
+      sourceData.urlPattern = urlPattern;
+    }
 
     try {
       const action = this.editingSourceId ? 'updateSource' : 'addSource';
@@ -784,6 +808,7 @@ export class SourceManager {
     this.elements.fieldPickerEventName?.classList.remove('open');
     this.elements.fieldPickerTimestamp?.classList.remove('open');
     this.elements.fieldPickerUserId?.classList.remove('open');
+    this.elements.fieldPickerPropertyContainer?.classList.remove('open');
 
     // Hide dropdown and reset position classes
     this.elements.fieldOptionsDropdown.style.display = 'none';
@@ -850,7 +875,8 @@ export class SourceManager {
     const inputMap = {
       eventName: this.elements.fieldEventName,
       timestamp: this.elements.fieldTimestamp,
-      userId: this.elements.fieldUserId
+      userId: this.elements.fieldUserId,
+      propertyContainer: this.elements.fieldPropertyContainer
     };
     inputMap[fieldType].value = value;
 
@@ -868,7 +894,8 @@ export class SourceManager {
     const pickerMap = {
       eventName: this.elements.fieldPickerEventName,
       timestamp: this.elements.fieldPickerTimestamp,
-      userId: this.elements.fieldPickerUserId
+      userId: this.elements.fieldPickerUserId,
+      propertyContainer: this.elements.fieldPickerPropertyContainer
     };
     const picker = pickerMap[fieldType];
     if (!picker) return;
@@ -902,7 +929,8 @@ export class SourceManager {
     const inputMap = {
       eventName: this.elements.fieldEventName,
       timestamp: this.elements.fieldTimestamp,
-      userId: this.elements.fieldUserId
+      userId: this.elements.fieldUserId,
+      propertyContainer: this.elements.fieldPropertyContainer
     };
     return inputMap[fieldType]?.value || '';
   }
@@ -914,7 +942,8 @@ export class SourceManager {
     const detectionOrder = {
       eventName: ['event', 'eventName', 'event_name', 'action', 'name', 'type', 'noun'],
       timestamp: ['timestamp', 'client_timestamp', 'time', 'ts', 'sentAt', 'created_at'],
-      userId: ['userId', 'user_id', 'uid', 'anonymousId', 'anonymous_id']
+      userId: ['userId', 'user_id', 'uid', 'anonymousId', 'anonymous_id'],
+      propertyContainer: ['properties', 'props', 'event_data', 'data', 'payload', 'params', 'attributes']
     };
 
     const fields = detectionOrder[fieldType] || [];
@@ -992,10 +1021,12 @@ export class SourceManager {
     this.elements.fieldEventName.value = '';
     this.elements.fieldTimestamp.value = '';
     this.elements.fieldUserId.value = '';
+    this.elements.fieldPropertyContainer.value = '';
 
     this.updateFieldPickerDisplay('eventName', '');
     this.updateFieldPickerDisplay('timestamp', '');
     this.updateFieldPickerDisplay('userId', '');
+    this.updateFieldPickerDisplay('propertyContainer', '');
 
     console.log('[SourceManager] Initialized field pickers with', this.availableFields.length, 'fields');
   }
@@ -1010,9 +1041,11 @@ export class SourceManager {
     this.elements.fieldEventName.value = '';
     this.elements.fieldTimestamp.value = '';
     this.elements.fieldUserId.value = '';
+    this.elements.fieldPropertyContainer.value = '';
 
     this.updateFieldPickerDisplay('eventName', '');
     this.updateFieldPickerDisplay('timestamp', '');
     this.updateFieldPickerDisplay('userId', '');
+    this.updateFieldPickerDisplay('propertyContainer', '');
   }
 }

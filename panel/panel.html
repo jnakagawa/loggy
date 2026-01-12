@@ -211,6 +211,12 @@
         </div>
 
         <div class="setting-group">
+          <label class="setting-label">URL Pattern <span style="color: #999; font-weight: normal;">(optional)</span></label>
+          <input type="text" id="sourceUrlPattern" placeholder="e.g., /tracking/*, /api/v*/events">
+          <small style="color: #666; font-size: 11px;">Glob pattern for URL path. Use * for wildcard. Helps match specific endpoints.</small>
+        </div>
+
+        <div class="setting-group">
           <label class="setting-label">Color</label>
           <input type="color" id="sourceColor" value="#6366F1">
         </div>
@@ -244,6 +250,14 @@
                 <span class="field-picker-arrow"></span>
               </div>
               <input type="hidden" id="fieldUserId">
+            </div>
+            <div class="field-picker-row">
+              <label class="field-picker-label">Properties:</label>
+              <div class="field-picker" id="fieldPickerPropertyContainer" data-field="propertyContainer">
+                <span class="field-picker-value">auto-detect</span>
+                <span class="field-picker-arrow"></span>
+              </div>
+              <input type="hidden" id="fieldPropertyContainer">
             </div>
           </div>
           <!-- Field options dropdown (populated dynamically) -->
