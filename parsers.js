@@ -83,13 +83,14 @@ export class AnalyticsParser {
 
       const events = this.parsePayload(data, source?.fieldMappings || {});
 
-      // Add metadata and source info to all events
+      // Add metadata, source info, and raw payload to all events
       return events.map(event => ({
         ...event,
         _source: source?.id || 'unknown',
         _sourceName: source?.name || 'Unknown',
         _sourceIcon: source?.icon || '📊',
         _sourceColor: source?.color || '#6366F1',
+        _rawPayload: data,  // Store original payload for "show raw" and field pickers
         _metadata: {
           capturedAt: new Date().toISOString(),
           url: url,

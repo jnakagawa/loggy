@@ -31,6 +31,24 @@ let settings = {
 let lastEventTime = Date.now();
 let autoPaused = false; // Track if we auto-paused (vs manual pause)
 
+// Track sources with Chrome API body-read failures (need proxy for full capture)
+const sourcesNeedingProxy = new Map(); // sourceId -> { sourceName, domain, failureCount, lastSeen }
+
+/**
+ * Detect Chrome API body-read failures
+ * Chrome returns {error: "..."} when it can't read POST bodies for:
+ * - GZIP-compressed request bodies
+ * - fetch() with keepalive: true
+ * - navigator.sendBeacon()
+ * - Large payloads
+ */
+function isBodyReadFailure(payload) {
+  if (!payload || typeof payload !== 'object') return false;
+  if (Array.isArray(payload)) return false;
+  const keys = Object.keys(payload);
+  return keys.length === 1 && keys[0] === 'error';
+}
+
 // Load settings on startup and then register listener
 async function initialize() {
   console.log('[Analytics Logger] Initializing...');
@@ -168,28 +186,8 @@ chrome.webRequest.onBeforeRequest.addListener(
       return;
     }
 
-    // Debug: Log Airbnb requests
-    if (details.url.includes('airbnb')) {
-      console.log('[Analytics Logger] [DEBUG] Airbnb request:', details.url);
-      console.log('[Analytics Logger] [DEBUG] Has requestBody:', !!details.requestBody);
-      if (details.requestBody) {
-        console.log('[Analytics Logger] [DEBUG] requestBody keys:', Object.keys(details.requestBody));
-        if (details.requestBody.raw) {
-          console.log('[Analytics Logger] [DEBUG] raw chunks:', details.requestBody.raw.length);
-          details.requestBody.raw.forEach((chunk, i) => {
-            console.log(`[Analytics Logger] [DEBUG] chunk ${i} has bytes:`, !!chunk.bytes, chunk.bytes ? chunk.bytes.byteLength : 0);
-          });
-        }
-      }
-    }
-
     // Find matching source using ConfigManager
     const source = configManager.findSourceForUrl(details.url);
-
-    // Debug: Log source matching for Airbnb
-    if (details.url.includes('airbnb')) {
-      console.log('[Analytics Logger] [DEBUG] Source match result:', source ? source.name : 'NO MATCH');
-    }
 
     if (!source) {
       // Track unmatched analytics requests for suggestions (if enabled)
@@ -208,48 +206,75 @@ chrome.webRequest.onBeforeRequest.addListener(
 
     console.log(`[Analytics Logger] ✅ Matched source "${source.name}" for:`, details.url);
 
-    // Parse the request using the source's parser (async for decompression)
-    AnalyticsParser.parseRequest(
-      details.url,
-      details.requestBody,
-      details.initiator,
-      source
-    ).then(events => {
-      if (events.length > 0) {
-        console.log(`[Analytics Logger] ✓ Captured ${events.length} event(s) from ${source.name}`);
+    // First decode the raw payload to check for Chrome API body-read failures
+    AnalyticsParser.decodeRequestBodyAsync(details.requestBody).then(rawPayload => {
+      // Check for Chrome API body-read failure
+      if (isBodyReadFailure(rawPayload)) {
+        console.log(`[Analytics Logger] ⚠️ Chrome API body-read failure for ${source.name} - payload:`, rawPayload);
 
-        // Add source metadata to events
-        events.forEach(event => {
-          event._source = source.id;
-          event._sourceName = source.name;
-          event._sourceIcon = source.icon;
-          event._sourceColor = source.color;
+        // Track this source as needing proxy
+        const existing = sourcesNeedingProxy.get(source.id);
+        sourcesNeedingProxy.set(source.id, {
+          sourceName: source.name,
+          domain: source.domain,
+          failureCount: (existing?.failureCount || 0) + 1,
+          lastSeen: Date.now()
         });
 
-        storage.addEvents(events);
+        // Notify panels about this source needing proxy
+        notifyPanels('sourceNeedsProxy', {
+          sourceId: source.id,
+          sourceName: source.name,
+          domain: source.domain
+        });
 
-        // Update last event time for auto-pause feature
-        lastEventTime = Date.now();
-        if (autoPaused) {
-          // Auto-resume if we were auto-paused and new events arrived
-          autoPaused = false;
-          console.log('[Analytics Logger] Auto-resumed due to new activity');
-        }
-
-        // Update source statistics
-        source.recordCapture();
-        configManager.save();
-
-        // Persist if enabled
-        if (settings.persistEvents) {
-          storage.saveToStorage();
-        }
-
-        // Notify open panels
-        notifyPanels('eventsAdded', events);
-      } else {
-        console.log('[Analytics Logger] No events extracted from request');
+        // Don't create junk events - just return
+        return;
       }
+
+      // Normal parsing flow - payload is readable
+      return AnalyticsParser.parseRequest(
+        details.url,
+        details.requestBody,
+        details.initiator,
+        source
+      );
+    }).then(events => {
+      if (!events || events.length === 0) {
+        return;
+      }
+
+      console.log(`[Analytics Logger] ✓ Captured ${events.length} event(s) from ${source.name}`);
+
+      // Add source metadata to events
+      events.forEach(event => {
+        event._source = source.id;
+        event._sourceName = source.name;
+        event._sourceIcon = source.icon;
+        event._sourceColor = source.color;
+      });
+
+      storage.addEvents(events);
+
+      // Update last event time for auto-pause feature
+      lastEventTime = Date.now();
+      if (autoPaused) {
+        // Auto-resume if we were auto-paused and new events arrived
+        autoPaused = false;
+        console.log('[Analytics Logger] Auto-resumed due to new activity');
+      }
+
+      // Update source statistics
+      source.recordCapture();
+      configManager.save();
+
+      // Persist if enabled
+      if (settings.persistEvents) {
+        storage.saveToStorage();
+      }
+
+      // Notify open panels
+      notifyPanels('eventsAdded', events);
     }).catch(err => {
       console.error('[Analytics Logger] Error parsing request:', err);
       console.error('[Analytics Logger] Request details:', {
@@ -491,6 +516,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: true });
       break;
 
+    case 'getSourcesNeedingProxy':
+      // Return sources that have Chrome API body-read failures
+      sendResponse({
+        success: true,
+        sources: Array.from(sourcesNeedingProxy.entries()).map(([id, info]) => ({
+          sourceId: id,
+          ...info
+        }))
+      });
+      break;
+
+    case 'clearSourceNeedingProxy':
+      sourcesNeedingProxy.delete(message.sourceId);
+      sendResponse({ success: true });
+      break;
+
     case 'detectFields':
       // Use parser to detect fields from payload
       const detection = AnalyticsParser.detectFields(message.payload);
@@ -529,6 +570,14 @@ chrome.runtime.onConnect.addListener((port) => {
     port.onDisconnect.addListener(() => {
       console.log('[Analytics Logger] Panel disconnected');
       connectedPanels.delete(port);
+
+      // Auto-pause when no panels are open
+      if (connectedPanels.size === 0 && settings.enabled) {
+        settings.enabled = false;
+        autoPaused = true;
+        chrome.storage.local.set({ settings, autoPaused });
+        console.log('[Analytics Logger] Auto-paused (panel closed)');
+      }
     });
   }
 });
