@@ -56,6 +56,17 @@ function handleMessage(message) {
       });
       break;
 
+    case 'ping':
+      // Check if dependencies are installed
+      const nodeModulesPath = path.join(__dirname, '..', 'node_modules', 'http-mitm-proxy');
+      const depsInstalled = fs.existsSync(nodeModulesPath);
+      sendMessage({
+        success: true,
+        depsInstalled: depsInstalled,
+        needsSetup: !depsInstalled
+      });
+      break;
+
     default:
       sendMessage({ error: 'Unknown action' });
   }
@@ -97,6 +108,31 @@ function startProxy() {
 }
 
 function actuallyStartProxy() {
+  const projectRoot = path.join(__dirname, '..');
+  const depsPath = path.join(projectRoot, 'node_modules', 'http-mitm-proxy');
+
+  // Check if dependencies are installed
+  if (!fs.existsSync(depsPath)) {
+    // Auto-install dependencies (use full path since native host has limited PATH)
+    const npmPath = '/opt/homebrew/bin/npm';
+    exec(`${npmPath} install`, { cwd: projectRoot }, (err, stdout, stderr) => {
+      if (err) {
+        sendMessage({
+          success: false,
+          error: 'Failed to install dependencies: ' + (stderr || err.message)
+        });
+        return;
+      }
+      // Dependencies installed, now start proxy
+      doStartProxy();
+    });
+    return;
+  }
+
+  doStartProxy();
+}
+
+function doStartProxy() {
   // Clean up stale PID file
   if (fs.existsSync(PID_FILE)) {
     try {

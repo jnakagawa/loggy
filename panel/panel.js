@@ -73,6 +73,7 @@ class AnalyticsLoggerUI {
     // Proxy state
     this.proxyRunning = false;
     this.nativeHostAvailable = null; // null = checking, true/false after check
+    this.needsDepsInstall = false; // true if native host available but npm deps missing
 
     // Pause/Play state
     this.isPaused = false;
@@ -277,11 +278,13 @@ class AnalyticsLoggerUI {
 
     // Proxy control (main view)
     this.elements.proxyActionBtn.addEventListener('click', () => {
-      if (!this.nativeHostAvailable) {
+      if (!this.nativeHostAvailable && !this.needsDepsInstall) {
+        // Native host not installed at all - need setup assistant
         this.openSetupAssistant();
       } else if (this.proxyRunning) {
         this.stopProxy();
       } else {
+        // Either ready to start, or needs deps install (startProxy will handle it)
         this.startProxy();
       }
     });
@@ -330,30 +333,44 @@ class AnalyticsLoggerUI {
     return new Promise((resolve) => {
       try {
         const port = chrome.runtime.connectNative('com.analytics_logger.proxy');
+        let responded = false;
 
-        port.onDisconnect.addListener(() => {
-          if (chrome.runtime.lastError) {
-            // Native host not available
-            this.nativeHostAvailable = false;
-          } else {
-            this.nativeHostAvailable = true;
-          }
+        port.onMessage.addListener((response) => {
+          responded = true;
+          // Native host is available since we got a response
+          this.nativeHostAvailable = true;
+          // Check if deps need to be installed
+          this.needsDepsInstall = response.needsSetup || false;
           this.updateProxyMainUI();
           resolve(this.nativeHostAvailable);
+          try { port.disconnect(); } catch (e) {}
+        });
+
+        port.onDisconnect.addListener(() => {
+          if (!responded) {
+            if (chrome.runtime.lastError) {
+              // Native host not available
+              this.nativeHostAvailable = false;
+            } else {
+              this.nativeHostAvailable = true;
+            }
+            this.updateProxyMainUI();
+            resolve(this.nativeHostAvailable);
+          }
         });
 
         // Send a ping to check if host responds
         port.postMessage({ action: 'ping' });
 
-        // Give it a moment, then disconnect
+        // Timeout fallback
         setTimeout(() => {
-          if (this.nativeHostAvailable === null) {
+          if (!responded && this.nativeHostAvailable === null) {
             this.nativeHostAvailable = true;
             this.updateProxyMainUI();
             resolve(true);
+            try { port.disconnect(); } catch (e) {}
           }
-          try { port.disconnect(); } catch (e) {}
-        }, 500);
+        }, 1000);
 
       } catch (err) {
         this.nativeHostAvailable = false;
@@ -415,6 +432,12 @@ class AnalyticsLoggerUI {
       statusEl.classList.add('setup-required');
       btnEl.textContent = 'Setup';
       btnEl.disabled = false;
+    } else if (this.needsDepsInstall) {
+      // Native host available but deps need to be installed
+      statusEl.textContent = 'Setup Required';
+      statusEl.classList.add('setup-required');
+      btnEl.textContent = 'Setup';
+      btnEl.disabled = false;
     } else if (this.proxyRunning) {
       // Proxy running
       statusEl.textContent = 'Running';
@@ -448,6 +471,7 @@ class AnalyticsLoggerUI {
 
         if (response.success) {
           this.proxyRunning = true;
+          this.needsDepsInstall = false; // Deps are now installed
           this.updateProxyUI();
           this.hideProxySuggestionBanner(); // Hide banner since proxy is now running
 
