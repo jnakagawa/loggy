@@ -51,9 +51,104 @@ body {
 }
 
 .header-logo {
-  width: 40px;
+  width: 44px;  /* 301:272 aspect ratio from sprite frames */
   height: 40px;
-  object-fit: contain;
+}
+
+/* Loggy Sprite Animation */
+.loggy-sprite {
+  background-size: 600% 600%; /* 6x6 grid */
+  background-position: 0% 0%;
+}
+
+/* Walking animation (default - when running) */
+.loggy-sprite.walking {
+  background-image: url('../loggy_walk.png');
+  animation: loggy-walk 1.2s steps(1) infinite;
+}
+
+/* Idle animation (when paused) */
+.loggy-sprite.idle {
+  background-image: url('../loggy_idle.png');
+  animation: loggy-idle 1.2s steps(1) infinite;
+}
+
+@keyframes loggy-idle {
+  0%        { background-position: 0% 0%; }
+  2.778%    { background-position: 20% 0%; }
+  5.556%    { background-position: 40% 0%; }
+  8.333%    { background-position: 60% 0%; }
+  11.111%   { background-position: 80% 0%; }
+  13.889%   { background-position: 100% 0%; }
+  16.667%   { background-position: 0% 20%; }
+  19.444%   { background-position: 20% 20%; }
+  22.222%   { background-position: 40% 20%; }
+  25%       { background-position: 60% 20%; }
+  27.778%   { background-position: 80% 20%; }
+  30.556%   { background-position: 100% 20%; }
+  33.333%   { background-position: 0% 40%; }
+  36.111%   { background-position: 20% 40%; }
+  38.889%   { background-position: 40% 40%; }
+  41.667%   { background-position: 60% 40%; }
+  44.444%   { background-position: 80% 40%; }
+  47.222%   { background-position: 100% 40%; }
+  50%       { background-position: 0% 60%; }
+  52.778%   { background-position: 20% 60%; }
+  55.556%   { background-position: 40% 60%; }
+  58.333%   { background-position: 60% 60%; }
+  61.111%   { background-position: 80% 60%; }
+  63.889%   { background-position: 100% 60%; }
+  66.667%   { background-position: 0% 80%; }
+  69.444%   { background-position: 20% 80%; }
+  72.222%   { background-position: 40% 80%; }
+  75%       { background-position: 60% 80%; }
+  77.778%   { background-position: 80% 80%; }
+  80.556%   { background-position: 100% 80%; }
+  83.333%   { background-position: 0% 100%; }
+  86.111%   { background-position: 20% 100%; }
+  88.889%   { background-position: 40% 100%; }
+  91.667%   { background-position: 60% 100%; }
+  94.444%   { background-position: 80% 100%; }
+  97.222%   { background-position: 100% 100%; }
+}
+
+@keyframes loggy-walk {
+  0%        { background-position: 0% 0%; }
+  2.778%    { background-position: 20% 0%; }
+  5.556%    { background-position: 40% 0%; }
+  8.333%    { background-position: 60% 0%; }
+  11.111%   { background-position: 80% 0%; }
+  13.889%   { background-position: 100% 0%; }
+  16.667%   { background-position: 0% 20%; }
+  19.444%   { background-position: 20% 20%; }
+  22.222%   { background-position: 40% 20%; }
+  25%       { background-position: 60% 20%; }
+  27.778%   { background-position: 80% 20%; }
+  30.556%   { background-position: 100% 20%; }
+  33.333%   { background-position: 0% 40%; }
+  36.111%   { background-position: 20% 40%; }
+  38.889%   { background-position: 40% 40%; }
+  41.667%   { background-position: 60% 40%; }
+  44.444%   { background-position: 80% 40%; }
+  47.222%   { background-position: 100% 40%; }
+  50%       { background-position: 0% 60%; }
+  52.778%   { background-position: 20% 60%; }
+  55.556%   { background-position: 40% 60%; }
+  58.333%   { background-position: 60% 60%; }
+  61.111%   { background-position: 80% 60%; }
+  63.889%   { background-position: 100% 60%; }
+  66.667%   { background-position: 0% 80%; }
+  69.444%   { background-position: 20% 80%; }
+  72.222%   { background-position: 40% 80%; }
+  75%       { background-position: 60% 80%; }
+  77.778%   { background-position: 80% 80%; }
+  80.556%   { background-position: 100% 80%; }
+  83.333%   { background-position: 0% 100%; }
+  86.111%   { background-position: 20% 100%; }
+  88.889%   { background-position: 40% 100%; }
+  91.667%   { background-position: 60% 100%; }
+  94.444%   { background-position: 80% 100%; }
+  97.222%   { background-position: 100% 100%; }
 }
 
 .speech-bubble {
@@ -66,6 +161,12 @@ body {
   font-size: 14px;
   font-weight: 600;
   white-space: nowrap;
+  transition: transform 0.15s ease-out, opacity 0.15s ease-out;
+}
+
+.speech-bubble.bubble-pop {
+  transform: scale(0.8);
+  opacity: 0;
 }
 
 .speech-bubble::before {

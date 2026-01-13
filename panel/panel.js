@@ -42,6 +42,8 @@ class AnalyticsLoggerUI {
       exportCSVBtn: document.getElementById('exportCSVBtn'),
       settingsBtn: document.getElementById('settingsBtn'),
       pauseBtn: document.getElementById('pauseBtn'),
+      loggySprite: document.getElementById('loggySprite'),
+      speechBubble: document.getElementById('speechBubble'),
       totalEvents: document.getElementById('totalEvents'),
       filteredEvents: document.getElementById('filteredEvents'),
       storageUsage: document.getElementById('storageUsage'),
@@ -694,6 +696,15 @@ class AnalyticsLoggerUI {
   }
 
   updatePauseButton() {
+    const newText = this.isPaused ? "Ready when you are!" : "It's logging time!";
+
+    // Animate speech bubble text change
+    this.elements.speechBubble.classList.add('bubble-pop');
+    setTimeout(() => {
+      this.elements.speechBubble.textContent = newText;
+      this.elements.speechBubble.classList.remove('bubble-pop');
+    }, 150);
+
     if (this.isPaused) {
       if (this.isAutoPaused) {
         this.elements.pauseBtn.innerHTML = '▶️ Auto-Paused';
@@ -703,10 +714,16 @@ class AnalyticsLoggerUI {
         this.elements.pauseBtn.title = 'Resume event collection';
       }
       this.elements.pauseBtn.classList.add('paused');
+      // Switch Loggy to idle animation
+      this.elements.loggySprite.classList.remove('walking');
+      this.elements.loggySprite.classList.add('idle');
     } else {
       this.elements.pauseBtn.innerHTML = '⏸️ Pause';
       this.elements.pauseBtn.classList.remove('paused');
       this.elements.pauseBtn.title = 'Pause event collection';
+      // Switch Loggy to walking animation
+      this.elements.loggySprite.classList.remove('idle');
+      this.elements.loggySprite.classList.add('walking');
     }
   }
 
