@@ -984,6 +984,11 @@ class AnalyticsLoggerUI {
     this.elements.emptyState.style.display = 'none';
     this.elements.eventsList.style.display = 'flex';
 
+    // Capture scroll state BEFORE re-render to preserve viewport position
+    const container = this.elements.eventsContainer;
+    const scrollTop = container.scrollTop;
+    const oldScrollHeight = container.scrollHeight;
+
     // Preserve expanded state before re-rendering
     const expandedEventIds = new Set();
     const expandedCollapsibleSections = new Map(); // Map of eventId -> Set of section indices
@@ -1151,6 +1156,14 @@ class AnalyticsLoggerUI {
         this.copyEventJson(eventId, btn);
       });
     });
+
+    // Compensate scroll position to keep viewport stable after re-render
+    // Only adjust if user was NOT at the very top (scrollTop > 0)
+    if (scrollTop > 0) {
+      const newScrollHeight = container.scrollHeight;
+      const heightAdded = newScrollHeight - oldScrollHeight;
+      container.scrollTop = scrollTop + heightAdded;
+    }
   }
 
   /**
