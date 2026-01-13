@@ -214,9 +214,15 @@ class AnalyticsLoggerUI {
       this.openSettings(); // Opens the settings modal which contains Sources tab
     });
 
-    // Proxy suggestion banner - start proxy button
+    // Proxy suggestion banner - start/setup proxy button
     this.elements.startProxyFromBanner?.addEventListener('click', () => {
-      this.startProxy();
+      if (!this.nativeHostAvailable || this.needsDepsInstall) {
+        // Proxy not set up - open setup assistant
+        this.openSetupAssistant();
+      } else {
+        // Proxy ready - start it
+        this.startProxy();
+      }
       this.hideProxySuggestionBanner();
     });
 
@@ -717,9 +723,20 @@ class AnalyticsLoggerUI {
 
     const banner = this.elements.proxySuggestionBanner;
     const sourceNameEl = this.elements.proxyNeededSource;
+    const btnEl = this.elements.startProxyFromBanner;
 
     if (banner && sourceNameEl) {
       sourceNameEl.textContent = data.sourceName || 'Some sources';
+
+      // Update button text based on proxy setup state
+      if (btnEl) {
+        if (!this.nativeHostAvailable || this.needsDepsInstall) {
+          btnEl.textContent = 'Setup Proxy';
+        } else {
+          btnEl.textContent = 'Start Proxy';
+        }
+      }
+
       banner.style.display = 'flex';
       console.log('[Panel] Showing proxy suggestion banner for:', data.sourceName);
     }
