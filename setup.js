@@ -57,6 +57,7 @@ EOF
 chmod +x "${extensionPath}/native-host/proxy-host.cjs" && echo "Done! Reload the extension."`;
     } else {
         // UNPACKED/DEVELOPMENT - User needs to cd to project folder first
+        // npm install is included for convenience (skips quickly if already installed)
         command = `npm install && mkdir -p "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts" && cat > "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.analytics_logger.proxy.json" << EOF
 {
   "name": "com.analytics_logger.proxy",

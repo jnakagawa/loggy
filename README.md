@@ -22,14 +22,26 @@ A Chrome extension that automatically captures and displays analytics events fro
 
 ## Installation
 
-### From Source
+### From Source (Alpha Users)
 
-1. Clone or download this repository
+1. Clone this repository
 2. Open Chrome and navigate to `chrome://extensions/`
 3. Enable "Developer mode" (toggle in top-right corner)
 4. Click "Load unpacked"
-5. Select the `extension-analytics-logger` directory
+5. Select the `loggy` directory
 6. The extension icon should appear in your toolbar
+
+### Proxy Setup (Optional - for full HTTPS interception)
+
+The proxy allows capturing analytics from sites that use compressed request bodies or sendBeacon:
+
+1. Open the extension side panel
+2. Click the "Setup" button next to Proxy status
+3. Copy the terminal command and run it in Terminal (this installs dependencies automatically)
+4. Reload the extension
+5. Click "Start" to launch the proxy
+
+**Note:** Requires Node.js to be installed.
 
 ### First-time Setup
 
