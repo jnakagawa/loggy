@@ -1,1 +1,51 @@
-{}
+{
+  "google-com": {
+    "id": "google-com",
+    "name": "Google",
+    "enabled": true,
+    "color": "#ec4899",
+    "icon": "📊",
+    "domain": "google.com",
+    "fieldMappings": {},
+    "createdBy": "user",
+    "createdAt": "2026-01-13T00:18:35.997Z",
+    "stats": {
+      "eventsCapture": 2109,
+      "lastCaptured": "2026-01-13T03:16:01.712Z"
+    }
+  },
+  "windthrow-store": {
+    "id": "windthrow-store",
+    "name": "Windthrow Store",
+    "enabled": true,
+    "color": "#8b5cf6",
+    "icon": "📊",
+    "domain": "windthrow.store",
+    "fieldMappings": {},
+    "createdBy": "user",
+    "createdAt": "2026-01-13T00:27:11.058Z",
+    "stats": {
+      "eventsCapture": 14,
+      "lastCaptured": "2026-01-13T03:12:46.031Z"
+    }
+  },
+  "reddit-com-svc-shreddit": {
+    "id": "reddit-com-svc-shreddit",
+    "name": "Reddit - Shreddit",
+    "enabled": true,
+    "color": "#3b82f6",
+    "icon": "📊",
+    "domain": "reddit.com",
+    "fieldMappings": {
+      "eventName": "info[0].action",
+      "timestamp": "info[0].client_timestamp"
+    },
+    "createdBy": "user",
+    "createdAt": "2026-01-13T03:13:58.489Z",
+    "stats": {
+      "eventsCapture": 0,
+      "lastCaptured": null
+    },
+    "urlPattern": "/svc/shreddit/*"
+  }
+}
