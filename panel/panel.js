@@ -514,7 +514,7 @@ class AnalyticsLoggerUI {
           }
         }
 
-        port.disconnect();
+        try { port.disconnect(); } catch (e) {}
       });
 
       port.onDisconnect.addListener(() => {
