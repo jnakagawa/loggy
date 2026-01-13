@@ -56,11 +56,26 @@ body {
   object-fit: contain;
 }
 
-.header h1 {
-  font-size: 20px;
+.speech-bubble {
+  position: relative;
+  background: #4A90D9;
+  color: white;
+  padding: 6px 14px;
+  border-radius: 16px;
+  font-family: 'Comic Sans MS', 'Chalkboard SE', 'Comic Neue', cursive;
+  font-size: 14px;
   font-weight: 600;
-  margin: 0;
-  color: #4A90D9;
+  white-space: nowrap;
+}
+
+.speech-bubble::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 6px solid transparent;
+  border-right-color: #4A90D9;
 }
 
 .header-actions {
