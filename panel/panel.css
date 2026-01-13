@@ -58,7 +58,7 @@ body {
 
 .speech-bubble {
   position: relative;
-  background: #4A90D9;
+  background: #3a3a3c;
   color: white;
   padding: 6px 14px;
   border-radius: 16px;
@@ -75,7 +75,7 @@ body {
   top: 50%;
   transform: translateY(-50%);
   border: 6px solid transparent;
-  border-right-color: #4A90D9;
+  border-right-color: #3a3a3c;
 }
 
 .header-actions {
