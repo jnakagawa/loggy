@@ -94,8 +94,8 @@ class AnalyticsLoggerUI {
     // Load confirmation preferences
     await this.loadConfirmPrefs();
 
-    // Check if native messaging host is available
-    this.checkNativeHost();
+    // Check if native messaging host is available (await to prevent race condition)
+    await this.checkNativeHost();
 
     // Check if proxy server is actually running (ping it)
     await this.checkProxyRunning();
@@ -362,12 +362,12 @@ class AnalyticsLoggerUI {
         // Send a ping to check if host responds
         port.postMessage({ action: 'ping' });
 
-        // Timeout fallback
+        // Timeout fallback - if no response, assume not available
         setTimeout(() => {
           if (!responded && this.nativeHostAvailable === null) {
-            this.nativeHostAvailable = true;
+            this.nativeHostAvailable = false;
             this.updateProxyMainUI();
-            resolve(true);
+            resolve(false);
             try { port.disconnect(); } catch (e) {}
           }
         }, 1000);
