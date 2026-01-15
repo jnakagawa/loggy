@@ -1,4 +1,4 @@
-#!/opt/homebrew/bin/node
+#!/usr/bin/env node
 
 /**
  * Native Messaging Host for Analytics Logger
@@ -137,7 +137,7 @@ function doStartProxy() {
   // Start the MITM proxy (can decrypt HTTPS like Charles)
   const proxyPath = path.join(__dirname, '..', 'proxy-server-mitm.js');
 
-  proxyProcess = spawn('/opt/homebrew/bin/node', [proxyPath], {
+  proxyProcess = spawn('node', [proxyPath], {
     detached: true,
     stdio: 'ignore'
   });

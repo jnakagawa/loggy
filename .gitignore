@@ -1,5 +1,5 @@
-# Dependencies
-node_modules/
+# Dependencies are bundled for easier install
+# node_modules/ - COMMITTED for one-click setup
 package-lock.json
 
 # Generated MITM proxy certificates and keys

@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "allowSyntheticDefaultImports": true,
+    "composite": true,
+    "emitDecoratorMetadata": true,
+    "esModuleInterop": true,
+    "experimentalDecorators": true,
+    "lib": ["ES2020"],
+    "module": "CommonJS",
+    "target": "ES2020",
+    "moduleResolution": "node",
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitAny": false,
+    "noImplicitReturns": true,
+    "noImplicitThis": false,
+    "outDir": "dist",
+    "removeComments": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "typeRoots": ["./node_modules/@types", "./types.d.ts"],
+    "baseUrl": ".",
+    "declaration": true
+  },
+  "include": ["lib/**/*.ts", "index.ts", "bin/*.ts"],
+  "ts-node": {
+    "files": true
+  },
+  "exclude": ["node_modules", "test/**/*.ts"]
+}
