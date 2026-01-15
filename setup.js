@@ -41,33 +41,31 @@ async function runInstaller() {
     let command;
     let extraInstructions = '';
 
-    // Check for Node.js (required to run proxy)
-    const nodeCheck = `command -v node >/dev/null 2>&1 || { echo ""; echo "❌ Node.js not found!"; echo ""; echo "Please install Node.js first:"; echo "  1. Go to https://nodejs.org"; echo "  2. Download the LTS version"; echo "  3. Run the installer"; echo "  4. Restart Terminal and run this command again"; echo ""; exit 1; }`;
-
     if (installType === 'normal') {
         // PACKED EXTENSION - Use shell variable expansion for the path
-        command = `${nodeCheck} && EXTENSION_PATH="$HOME/Library/Application Support/Google/Chrome/Default/Extensions/${extensionId}/${version}" && mkdir -p "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts" && cat > "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.analytics_logger.proxy.json" << EOF
+        command = `EXTENSION_PATH="$HOME/Library/Application Support/Google/Chrome/Default/Extensions/${extensionId}/${version}" && mkdir -p "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts" && cat > "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.analytics_logger.proxy.json" << EOF
 {
   "name": "com.analytics_logger.proxy",
   "description": "Analytics Logger Proxy Control",
-  "path": "$EXTENSION_PATH/native-host/proxy-host.cjs",
+  "path": "$EXTENSION_PATH/loggy-proxy/loggy-proxy",
   "type": "stdio",
   "allowed_origins": ["chrome-extension://${extensionId}/"]
 }
 EOF
-chmod +x "$EXTENSION_PATH/native-host/proxy-host.cjs" && echo "✅ Done! Reload the extension."`;
+chmod +x "$EXTENSION_PATH/loggy-proxy/loggy-proxy" && echo "✅ Done! Reload the extension."`;
     } else {
         // UNPACKED/DEVELOPMENT - User needs to cd to project folder first
-        command = `${nodeCheck} && mkdir -p "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts" && cat > "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.analytics_logger.proxy.json" << EOF
+        // First build the Go binary, then create the manifest
+        command = `cd loggy-proxy && go build -o loggy-proxy ./cmd && cd .. && mkdir -p "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts" && cat > "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.analytics_logger.proxy.json" << EOF
 {
   "name": "com.analytics_logger.proxy",
   "description": "Analytics Logger Proxy Control",
-  "path": "$(pwd)/native-host/proxy-host.cjs",
+  "path": "$(pwd)/loggy-proxy/loggy-proxy",
   "type": "stdio",
   "allowed_origins": ["chrome-extension://${extensionId}/"]
 }
 EOF
-chmod +x native-host/proxy-host.cjs && echo "✅ Done! Reload the extension."`;
+echo "✅ Done! Reload the extension."`;
 
         extraInstructions = `<p style="color: #e65100; font-size: 13px; margin-bottom: 12px;">
             <strong>First:</strong> In Terminal, navigate to your Loggy project folder:<br>

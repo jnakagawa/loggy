@@ -134,12 +134,18 @@ export class EventStorage {
    * Clear all events from both memory and persistent storage
    */
   async clearAll() {
+    // Clear in-memory events
     this.events = [];
     this.notifyListeners('clear');
 
     try {
+      // Clear from chrome.storage.local
       await chrome.storage.local.remove(['events', 'savedAt']);
       console.log('[Storage] Cleared persisted events from chrome.storage.local');
+
+      // Double-check by setting to empty array (belt and suspenders)
+      await chrome.storage.local.set({ events: [] });
+
       return true;
     } catch (err) {
       console.error('[Storage] Error clearing persistent storage:', err);

@@ -997,6 +997,7 @@ class AnalyticsLoggerUI {
     if (this.filteredEvents.length === 0) {
       this.elements.emptyState.style.display = 'block';
       this.elements.eventsList.style.display = 'none';
+      this.elements.eventsList.innerHTML = ''; // Clear old cards from DOM
       return;
     }
 

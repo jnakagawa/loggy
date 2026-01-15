@@ -1,6 +1,8 @@
 package proxy
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"net/url"
 	"strings"
@@ -8,6 +10,12 @@ import (
 
 	"github.com/jnakagawa/loggy/loggy-proxy/internal/config"
 )
+
+func generateID() string {
+	bytes := make([]byte, 16)
+	rand.Read(bytes)
+	return hex.EncodeToString(bytes)
+}
 
 func parsePayload(data []byte, contentType string, source *config.Source, requestURL string) []CapturedEvent {
 	var events []CapturedEvent
@@ -19,23 +27,36 @@ func parsePayload(data []byte, contentType string, source *config.Source, reques
 		payload = parseURLEncoded(string(data))
 	}
 
+	now := time.Now()
+	timestamp := now.Format(time.RFC3339)
+
 	// Extract events based on source configuration
 	rawEvents := extractEvents(payload, source)
 
 	for _, rawEvent := range rawEvents {
 		eventName := extractEventName(rawEvent, source)
 		eventData := extractEventData(rawEvent)
+		userID, anonID := extractUserIDs(rawEvent)
+		context := extractContext(rawEvent)
 
 		event := CapturedEvent{
-			Timestamp:   time.Now().UnixMilli(),
-			URL:         requestURL,
-			Method:      "POST",
-			Source:      source.Name,
-			SourceID:    source.ID,
-			EventName:   eventName,
-			EventData:   eventData,
+			ID:          generateID(),
+			Timestamp:   timestamp,
+			Event:       eventName,
+			Properties:  eventData,
+			Context:     context,
+			UserID:      userID,
+			AnonymousID: anonID,
+			Type:        "track",
+			Source:      source.ID,
+			SourceName:  source.Name,
+			SourceIcon:  source.Icon,
+			SourceColor: source.Color,
 			RawPayload:  rawEvent,
-			ContentType: contentType,
+			Metadata: EventMetadata{
+				URL:        requestURL,
+				CapturedAt: timestamp,
+			},
 		}
 
 		events = append(events, event)
@@ -45,17 +66,27 @@ func parsePayload(data []byte, contentType string, source *config.Source, reques
 	if len(events) == 0 && payload != nil {
 		eventName := extractEventName(payload, source)
 		eventData := extractEventData(payload)
+		userID, anonID := extractUserIDs(payload)
+		context := extractContext(payload)
 
 		event := CapturedEvent{
-			Timestamp:   time.Now().UnixMilli(),
-			URL:         requestURL,
-			Method:      "POST",
-			Source:      source.Name,
-			SourceID:    source.ID,
-			EventName:   eventName,
-			EventData:   eventData,
+			ID:          generateID(),
+			Timestamp:   timestamp,
+			Event:       eventName,
+			Properties:  eventData,
+			Context:     context,
+			UserID:      userID,
+			AnonymousID: anonID,
+			Type:        "track",
+			Source:      source.ID,
+			SourceName:  source.Name,
+			SourceIcon:  source.Icon,
+			SourceColor: source.Color,
 			RawPayload:  payload,
-			ContentType: contentType,
+			Metadata: EventMetadata{
+				URL:        requestURL,
+				CapturedAt: timestamp,
+			},
 		}
 
 		events = append(events, event)
@@ -146,7 +177,7 @@ func extractEventData(event interface{}) map[string]interface{} {
 	}
 
 	// Try to find properties/params sub-object
-	propFields := []string{"properties", "params", "data", "context", "traits", "p"}
+	propFields := []string{"properties", "params", "data", "traits", "p"}
 	for _, field := range propFields {
 		if val, ok := eventMap[field]; ok {
 			if props, ok := val.(map[string]interface{}); ok {
@@ -157,6 +188,54 @@ func extractEventData(event interface{}) map[string]interface{} {
 
 	// Return the whole event as data
 	return eventMap
+}
+
+func extractUserIDs(event interface{}) (string, string) {
+	eventMap, ok := event.(map[string]interface{})
+	if !ok {
+		return "", ""
+	}
+
+	var userID, anonID string
+
+	// Try common user ID fields
+	userFields := []string{"userId", "user_id", "uid"}
+	for _, field := range userFields {
+		if val, ok := eventMap[field]; ok {
+			if str, ok := val.(string); ok && str != "" {
+				userID = str
+				break
+			}
+		}
+	}
+
+	// Try common anonymous ID fields
+	anonFields := []string{"anonymousId", "anonymous_id", "anonId"}
+	for _, field := range anonFields {
+		if val, ok := eventMap[field]; ok {
+			if str, ok := val.(string); ok && str != "" {
+				anonID = str
+				break
+			}
+		}
+	}
+
+	return userID, anonID
+}
+
+func extractContext(event interface{}) map[string]interface{} {
+	eventMap, ok := event.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	if ctx, ok := eventMap["context"]; ok {
+		if ctxMap, ok := ctx.(map[string]interface{}); ok {
+			return ctxMap
+		}
+	}
+
+	return nil
 }
 
 // getNestedValue gets a value from a nested map using dot notation and array indexing

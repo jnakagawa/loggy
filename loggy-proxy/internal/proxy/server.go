@@ -37,16 +37,28 @@ var (
 )
 
 // CapturedEvent represents an analytics event captured by the proxy
+// Field names match the JavaScript parser format expected by the extension
 type CapturedEvent struct {
-	Timestamp   int64                  `json:"timestamp"`
-	URL         string                 `json:"url"`
-	Method      string                 `json:"method"`
-	Source      string                 `json:"source"`
-	SourceID    string                 `json:"sourceId"`
-	EventName   string                 `json:"eventName"`
-	EventData   map[string]interface{} `json:"eventData"`
-	RawPayload  interface{}            `json:"rawPayload,omitempty"`
-	ContentType string                 `json:"contentType"`
+	ID          string                 `json:"id"`
+	Timestamp   string                 `json:"timestamp"`
+	Event       string                 `json:"event"`
+	Properties  map[string]interface{} `json:"properties"`
+	Context     map[string]interface{} `json:"context,omitempty"`
+	UserID      string                 `json:"userId,omitempty"`
+	AnonymousID string                 `json:"anonymousId,omitempty"`
+	Type        string                 `json:"type"`
+	Source      string                 `json:"_source"`
+	SourceName  string                 `json:"_sourceName"`
+	SourceIcon  string                 `json:"_sourceIcon"`
+	SourceColor string                 `json:"_sourceColor"`
+	RawPayload  interface{}            `json:"_rawPayload,omitempty"`
+	Metadata    EventMetadata          `json:"_metadata"`
+}
+
+// EventMetadata contains capture metadata
+type EventMetadata struct {
+	URL        string `json:"url"`
+	CapturedAt string `json:"capturedAt"`
 }
 
 // Run starts the MITM proxy and API servers

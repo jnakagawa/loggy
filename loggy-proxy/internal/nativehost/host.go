@@ -15,13 +15,23 @@ func Run() {
 			if err == io.EOF {
 				return
 			}
-			sendError("Failed to read message")
+			sendResponse(Response{Success: false, Error: "Failed to read message"})
 			continue
 		}
 
 		response := handleMessage(msg)
-		writeMessage(os.Stdout, response)
+		sendResponse(response)
 	}
+}
+
+func sendResponse(msg Response) {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+	length := uint32(len(data))
+	binary.Write(os.Stdout, binary.LittleEndian, length)
+	os.Stdout.Write(data)
 }
 
 // readMessage reads a Chrome native messaging format message from r
@@ -45,21 +55,3 @@ func readMessage(r io.Reader) (Message, error) {
 	return msg, nil
 }
 
-// writeMessage writes a Chrome native messaging format message to w
-func writeMessage(w io.Writer, msg Response) {
-	data, err := json.Marshal(msg)
-	if err != nil {
-		return
-	}
-
-	length := uint32(len(data))
-	binary.Write(w, binary.LittleEndian, length)
-	w.Write(data)
-}
-
-func sendError(message string) {
-	writeMessage(os.Stdout, Response{
-		Success: false,
-		Error:   message,
-	})
-}

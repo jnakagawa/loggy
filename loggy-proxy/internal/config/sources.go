@@ -10,6 +10,8 @@ import (
 type Source struct {
 	ID            string            `json:"id"`
 	Name          string            `json:"name"`
+	Icon          string            `json:"icon"`
+	Color         string            `json:"color"`
 	Enabled       bool              `json:"enabled"`
 	Domain        string            `json:"domain"`
 	URLPattern    string            `json:"urlPattern,omitempty"`
@@ -81,6 +83,8 @@ func GetDefaultSources() []Source {
 		{
 			ID:            "google-analytics",
 			Name:          "Google Analytics",
+			Icon:          "📊",
+			Color:         "#F9AB00",
 			Enabled:       true,
 			Domain:        "google-analytics.com",
 			URLPattern:    "/*/collect*",
@@ -89,6 +93,8 @@ func GetDefaultSources() []Source {
 		{
 			ID:            "google-analytics-mp",
 			Name:          "Google Analytics (MP)",
+			Icon:          "📊",
+			Color:         "#F9AB00",
 			Enabled:       true,
 			Domain:        "google-analytics.com",
 			URLPattern:    "/mp/collect*",
@@ -98,21 +104,27 @@ func GetDefaultSources() []Source {
 		{
 			ID:         "segment",
 			Name:       "Segment",
+			Icon:       "📈",
+			Color:      "#52BD94",
 			Enabled:    true,
 			Domain:     "api.segment.io",
 			URLPattern: "/v1/*",
 			BatchPath:  "batch",
 		},
 		{
-			ID:         "amplitude",
-			Name:       "Amplitude",
-			Enabled:    true,
-			Domain:     "api.amplitude.com",
-			BatchPath:  "events",
+			ID:        "amplitude",
+			Name:      "Amplitude",
+			Icon:      "📉",
+			Color:     "#1E61DC",
+			Enabled:   true,
+			Domain:    "api.amplitude.com",
+			BatchPath: "events",
 		},
 		{
 			ID:            "mixpanel",
 			Name:          "Mixpanel",
+			Icon:          "🔮",
+			Color:         "#7856FF",
 			Enabled:       true,
 			Domain:        "api.mixpanel.com",
 			EventNamePath: "event",
@@ -120,6 +132,8 @@ func GetDefaultSources() []Source {
 		{
 			ID:            "reddit-pixel",
 			Name:          "Reddit Pixel",
+			Icon:          "🔴",
+			Color:         "#FF4500",
 			Enabled:       true,
 			Domain:        "alb.reddit.com",
 			URLPattern:    "/rp.gif*",
@@ -128,24 +142,40 @@ func GetDefaultSources() []Source {
 		{
 			ID:            "heap",
 			Name:          "Heap Analytics",
+			Icon:          "🏔️",
+			Color:         "#FF6B00",
 			Enabled:       true,
 			Domain:        "heapanalytics.com",
 			EventNamePath: "a",
 			BatchPath:     "b",
 		},
 		{
-			ID:         "posthog",
-			Name:       "PostHog",
-			Enabled:    true,
-			Domain:     "app.posthog.com",
-			BatchPath:  "batch",
+			ID:        "posthog",
+			Name:      "PostHog",
+			Icon:      "🦔",
+			Color:     "#F9BD2B",
+			Enabled:   true,
+			Domain:    "app.posthog.com",
+			BatchPath: "batch",
 		},
 		{
-			ID:         "rudderstack",
-			Name:       "RudderStack",
-			Enabled:    true,
-			Domain:     "rudderstack.com",
-			BatchPath:  "batch",
+			ID:        "rudderstack",
+			Name:      "RudderStack",
+			Icon:      "🚀",
+			Color:     "#3F77F4",
+			Enabled:   true,
+			Domain:    "rudderstack.com",
+			BatchPath: "batch",
+		},
+		{
+			ID:            "grammarly",
+			Name:          "Grammarly",
+			Icon:          "✍️",
+			Color:         "#15C39A",
+			Enabled:       true,
+			Domain:        "grammarly.com",
+			EventNamePath: "eventName",
+			BatchPath:     "events",
 		},
 	}
 }
