@@ -42,19 +42,17 @@ async function runInstaller() {
     let extraInstructions = '';
 
     if (installType === 'normal') {
-        // PACKED EXTENSION - Full path is known!
-        const extensionPath = `$HOME/Library/Application Support/Google/Chrome/Default/Extensions/${extensionId}/${version}`;
-
-        command = `cd "${extensionPath}" && npm install && mkdir -p "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts" && cat > "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.analytics_logger.proxy.json" << 'EOF'
+        // PACKED EXTENSION - Use shell variable expansion for the path
+        command = `EXTENSION_PATH="$HOME/Library/Application Support/Google/Chrome/Default/Extensions/${extensionId}/${version}" && cd "$EXTENSION_PATH" && npm install && mkdir -p "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts" && cat > "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.analytics_logger.proxy.json" << EOF
 {
   "name": "com.analytics_logger.proxy",
   "description": "Analytics Logger Proxy Control",
-  "path": "${extensionPath}/native-host/proxy-host.cjs",
+  "path": "$EXTENSION_PATH/native-host/proxy-host.cjs",
   "type": "stdio",
   "allowed_origins": ["chrome-extension://${extensionId}/"]
 }
 EOF
-chmod +x "${extensionPath}/native-host/proxy-host.cjs" && echo "Done! Reload the extension."`;
+chmod +x "$EXTENSION_PATH/native-host/proxy-host.cjs" && echo "Done! Reload the extension."`;
     } else {
         // UNPACKED/DEVELOPMENT - User needs to cd to project folder first
         // npm install is included for convenience (skips quickly if already installed)

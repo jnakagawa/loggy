@@ -356,8 +356,10 @@ class AnalyticsLoggerUI {
 
         port.onDisconnect.addListener(() => {
           if (!responded) {
-            if (chrome.runtime.lastError) {
-              // Native host not available
+            const error = chrome.runtime.lastError;
+            if (error) {
+              // Native host not available - log the specific error
+              console.log('[Panel] Native host error:', error.message);
               this.nativeHostAvailable = false;
             } else {
               this.nativeHostAvailable = true;
