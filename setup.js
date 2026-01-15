@@ -78,7 +78,11 @@ chmod +x native-host/proxy-host.cjs && echo "✅ Done! Reload the extension."`;
     status.innerHTML = `
         <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; border: 1px solid #ddd;">
             ${extraInstructions}
-            <p style="margin: 0 0 12px 0;"><strong>Copy this command:</strong></p>
+
+            <p style="margin: 0 0 8px 0;"><strong>Copy this command:</strong></p>
+            <p style="margin: 0 0 12px 0; font-size: 12px; color: #666;">
+                This creates a config file that lets Chrome talk to Loggy's proxy. Nothing is installed.
+            </p>
             <textarea id="installCommand" readonly style="width: 100%; height: 100px; font-family: monospace; font-size: 11px; padding: 10px; border: 2px solid #4A90D9; border-radius: 4px; resize: none;">${command}</textarea>
             <button id="copyBtn" style="width: 100%; background: #4A90D9; color: white; border: none; padding: 14px; border-radius: 6px; font-size: 15px; cursor: pointer; margin-top: 12px;">Copy Command</button>
             <div style="background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 12px; margin-top: 12px;">
