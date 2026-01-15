@@ -16,3 +16,4 @@ native-host/proxy.log
 # Build outputs
 dist/
 loggy-extension.zip
+loggy-proxy/loggy-proxy
