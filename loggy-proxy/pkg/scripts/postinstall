@@ -1,0 +1,72 @@
+#!/bin/bash
+# Postinstall script for Loggy Proxy
+# This runs after the binary is installed to /usr/local/bin/loggy-proxy
+
+set -e
+
+BINARY_PATH="/usr/local/bin/loggy-proxy"
+MANIFEST_NAME="com.analytics_logger.proxy"
+HOSTS_DIR="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
+EXTENSIONS_DIR="$HOME/Library/Application Support/Google/Chrome/Default/Extensions"
+
+# Create native messaging hosts directory
+mkdir -p "$HOSTS_DIR"
+
+# Try to find the Loggy extension ID by searching Chrome's extensions
+find_extension_id() {
+    if [ -d "$EXTENSIONS_DIR" ]; then
+        for ext_dir in "$EXTENSIONS_DIR"/*/; do
+            # Look in each version subdirectory for manifest.json
+            for version_dir in "$ext_dir"/*/; do
+                if [ -f "$version_dir/manifest.json" ]; then
+                    # Check if this is the Loggy extension
+                    if grep -q "Loggy" "$version_dir/manifest.json" 2>/dev/null; then
+                        # Extract extension ID from path
+                        ext_id=$(basename "$ext_dir")
+                        echo "$ext_id"
+                        return 0
+                    fi
+                fi
+            done
+        done
+    fi
+    return 1
+}
+
+# Try to auto-detect extension ID
+EXTENSION_ID=$(find_extension_id || echo "")
+
+if [ -z "$EXTENSION_ID" ]; then
+    # If we can't find it, use a placeholder that the extension will update
+    # The extension can detect this and prompt the user to re-run setup
+    echo "Could not auto-detect extension ID. Creating manifest with placeholder."
+    echo "The extension will guide you through completing setup."
+    EXTENSION_ID="PLACEHOLDER_EXTENSION_ID"
+fi
+
+# Create the native messaging host manifest
+cat > "$HOSTS_DIR/$MANIFEST_NAME.json" << EOF
+{
+  "name": "$MANIFEST_NAME",
+  "description": "Loggy Analytics Proxy Control",
+  "path": "$BINARY_PATH",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://$EXTENSION_ID/"]
+}
+EOF
+
+chmod 644 "$HOSTS_DIR/$MANIFEST_NAME.json"
+
+echo "Loggy Proxy installed successfully!"
+echo "Manifest created at: $HOSTS_DIR/$MANIFEST_NAME.json"
+
+if [ "$EXTENSION_ID" = "PLACEHOLDER_EXTENSION_ID" ]; then
+    echo ""
+    echo "NOTE: Please open the Loggy extension and click 'Complete Setup' to finish configuration."
+else
+    echo "Extension ID: $EXTENSION_ID"
+    echo ""
+    echo "Please reload the Loggy extension in Chrome to start using the proxy."
+fi
+
+exit 0

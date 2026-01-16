@@ -1,4 +1,8 @@
 // Setup Assistant JavaScript
+// Redirects users to download the .pkg installer
+
+const GITHUB_REPO = 'jnakagawa/loggy';
+const PKG_NAME = 'loggy-proxy-macos-universal.pkg';
 
 // Get extension ID from URL parameter
 function getExtensionId() {
@@ -16,99 +20,148 @@ function getExtensionId() {
     }
 }
 
+// Fetch latest release version from GitHub
+async function getLatestRelease() {
+    try {
+        const response = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`);
+        if (response.ok) {
+            const release = await response.json();
+            return release.tag_name.replace(/^v/, '');
+        }
+    } catch (e) {
+        console.log('Could not fetch latest release:', e);
+    }
+    return '1.0.0'; // Fallback version
+}
 
-async function runInstaller() {
+// Download the .pkg installer
+async function downloadInstaller() {
     const status = document.getElementById('installStatus');
     const extensionId = document.getElementById('extensionId').textContent;
 
     if (!extensionId || extensionId.includes('Not Found') || extensionId.includes('Loading')) {
-        status.innerHTML = '❌ Extension ID not found. Click "Open Setup Assistant" from the extension.';
+        status.innerHTML = `
+            <div style="background: #fff3cd; padding: 16px; border-radius: 8px; border: 1px solid #ffc107;">
+                <strong>Extension ID not found</strong>
+                <p style="margin: 8px 0 0 0;">Click "Open Setup Assistant" from the extension panel.</p>
+            </div>
+        `;
         return;
     }
 
-    // Detect install type and generate appropriate command
-    let installType = 'development';
-    let version = '1.0.0';
-
-    try {
-        const extensionInfo = await chrome.management.getSelf();
-        installType = extensionInfo.installType;
-        version = chrome.runtime.getManifest().version;
-    } catch (e) {
-        console.log('Could not detect install type, assuming development');
-    }
-
-    let command;
-    let extraInstructions = '';
-
-    if (installType === 'normal') {
-        // PACKED EXTENSION - Use shell variable expansion for the path
-        command = `EXTENSION_PATH="$HOME/Library/Application Support/Google/Chrome/Default/Extensions/${extensionId}/${version}" && mkdir -p "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts" && cat > "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.analytics_logger.proxy.json" << EOF
-{
-  "name": "com.analytics_logger.proxy",
-  "description": "Analytics Logger Proxy Control",
-  "path": "$EXTENSION_PATH/loggy-proxy/loggy-proxy",
-  "type": "stdio",
-  "allowed_origins": ["chrome-extension://${extensionId}/"]
-}
-EOF
-chmod +x "$EXTENSION_PATH/loggy-proxy/loggy-proxy" && echo "✅ Done! Reload the extension."`;
-    } else {
-        // UNPACKED/DEVELOPMENT - User needs to cd to project folder first
-        // First build the Go binary, then create the manifest
-        command = `cd loggy-proxy && go build -o loggy-proxy ./cmd && cd .. && mkdir -p "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts" && cat > "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.analytics_logger.proxy.json" << EOF
-{
-  "name": "com.analytics_logger.proxy",
-  "description": "Analytics Logger Proxy Control",
-  "path": "$(pwd)/loggy-proxy/loggy-proxy",
-  "type": "stdio",
-  "allowed_origins": ["chrome-extension://${extensionId}/"]
-}
-EOF
-echo "✅ Done! Reload the extension."`;
-
-        extraInstructions = `<p style="color: #e65100; font-size: 13px; margin-bottom: 12px;">
-            <strong>First:</strong> In Terminal, navigate to your Loggy project folder:<br>
-            <code style="background: #fff; padding: 4px 8px; display: inline-block; margin-top: 4px;">cd /path/to/loggy</code>
-        </p>`;
-    }
-
     status.innerHTML = `
-        <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; border: 1px solid #ddd;">
-            ${extraInstructions}
-
-            <p style="margin: 0 0 8px 0;"><strong>Copy this command:</strong></p>
-            <p style="margin: 0 0 12px 0; font-size: 12px; color: #666;">
-                This creates a config file that lets Chrome talk to Loggy's proxy. Nothing is installed.
-            </p>
-            <textarea id="installCommand" readonly style="width: 100%; height: 100px; font-family: monospace; font-size: 11px; padding: 10px; border: 2px solid #4A90D9; border-radius: 4px; resize: none;">${command}</textarea>
-            <button id="copyBtn" style="width: 100%; background: #4A90D9; color: white; border: none; padding: 14px; border-radius: 6px; font-size: 15px; cursor: pointer; margin-top: 12px;">Copy Command</button>
-            <div style="background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 12px; margin-top: 12px;">
-                <p style="margin: 0 0 8px 0; font-size: 13px; font-weight: 600;">Then open Terminal:</p>
-                <p style="margin: 0; font-size: 12px; color: #666;">
-                    Press <kbd style="background: #eee; padding: 2px 6px; border-radius: 3px; border: 1px solid #ccc;">Cmd</kbd> + <kbd style="background: #eee; padding: 2px 6px; border-radius: 3px; border: 1px solid #ccc;">Space</kbd>, type <strong>Terminal</strong>, press Enter
-                </p>
-            </div>
-            <p style="color: #666; font-size: 12px; margin: 12px 0 0 0; text-align: center;">
-                Paste with <kbd style="background: #eee; padding: 2px 6px; border-radius: 3px; border: 1px solid #ccc;">Cmd+V</kbd> and press Enter
-            </p>
+        <div style="background: #e3f2fd; padding: 16px; border-radius: 8px; border: 1px solid #2196f3;">
+            <span style="font-size: 18px;">Fetching latest version...</span>
         </div>
     `;
 
-    // Add copy button handler
-    setTimeout(() => {
-        document.getElementById('copyBtn').addEventListener('click', () => {
-            const textarea = document.getElementById('installCommand');
-            textarea.select();
-            document.execCommand('copy');
-            document.getElementById('copyBtn').textContent = '✓ Copied!';
-            setTimeout(() => {
-                document.getElementById('copyBtn').textContent = 'Copy Command';
-            }, 2000);
-        });
-    }, 100);
+    const version = await getLatestRelease();
+    const downloadUrl = `https://github.com/${GITHUB_REPO}/releases/latest/download/loggy-proxy-${version}-macos-universal.pkg`;
 
-    document.getElementById('step3').style.display = 'block';
+    // Show download instructions
+    status.innerHTML = `
+        <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; border: 1px solid #ddd;">
+            <div style="text-align: center; margin-bottom: 20px;">
+                <a href="${downloadUrl}"
+                   id="downloadLink"
+                   style="display: inline-block; background: #4A90D9; color: white; text-decoration: none; padding: 16px 32px; border-radius: 8px; font-size: 18px; font-weight: 600;">
+                    Download Loggy Proxy Installer
+                </a>
+                <p style="color: #666; font-size: 13px; margin: 12px 0 0 0;">
+                    Version ${version} for macOS (Intel & Apple Silicon)
+                </p>
+            </div>
+
+            <div style="background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 16px; margin-top: 16px;">
+                <p style="margin: 0 0 12px 0; font-size: 14px; font-weight: 600;">After downloading:</p>
+                <ol style="margin: 0; padding-left: 20px; font-size: 14px; color: #333;">
+                    <li style="margin-bottom: 8px;">Double-click the downloaded <code>.pkg</code> file</li>
+                    <li style="margin-bottom: 8px;">Follow the installer prompts (click Continue, Install)</li>
+                    <li style="margin-bottom: 8px;">Return here and click <strong>"I've Installed It"</strong></li>
+                </ol>
+            </div>
+
+            <div style="text-align: center; margin-top: 20px;">
+                <button id="verifyInstallBtn"
+                        style="background: #4caf50; color: white; border: none; padding: 12px 24px; border-radius: 6px; font-size: 15px; cursor: pointer;">
+                    I've Installed It - Verify Setup
+                </button>
+            </div>
+
+            <details style="margin-top: 20px;">
+                <summary style="cursor: pointer; color: #666; font-size: 13px;">Having trouble? Manual installation</summary>
+                <div style="margin-top: 12px; padding: 12px; background: #fff; border-radius: 4px; font-size: 12px;">
+                    <p style="margin: 0 0 8px 0;">If the installer doesn't work, you can install manually:</p>
+                    <pre style="background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 11px;">curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPO}/main/install.sh | bash -s -- ${extensionId}</pre>
+                </div>
+            </details>
+        </div>
+    `;
+
+    // Start download automatically
+    setTimeout(() => {
+        const link = document.getElementById('downloadLink');
+        if (link) link.click();
+    }, 500);
+
+    // Add verify button handler
+    setTimeout(() => {
+        const verifyBtn = document.getElementById('verifyInstallBtn');
+        if (verifyBtn) {
+            verifyBtn.addEventListener('click', verifyInstallation);
+        }
+    }, 100);
+}
+
+// Verify the installation worked
+async function verifyInstallation() {
+    const status = document.getElementById('installStatus');
+    const extensionId = document.getElementById('extensionId').textContent;
+
+    // Try to communicate with the native host
+    try {
+        const response = await chrome.runtime.sendMessage({ action: 'pingNativeHost' });
+
+        if (response && response.success) {
+            // Installation successful!
+            status.innerHTML = `
+                <div style="background: #e8f5e9; padding: 20px; border-radius: 8px; border: 1px solid #4caf50;">
+                    <div style="text-align: center;">
+                        <span style="font-size: 48px;">&#10003;</span>
+                        <h3 style="margin: 10px 0; color: #2e7d32;">Setup Complete!</h3>
+                        <p style="color: #333; margin-bottom: 16px;">Loggy Proxy is installed and ready to use.</p>
+                        <p style="color: #666; font-size: 13px;">
+                            Close this tab and click <strong>"Start Proxy"</strong> in the extension to begin capturing events.
+                        </p>
+                    </div>
+                </div>
+            `;
+            document.getElementById('step3').style.display = 'block';
+        } else {
+            showVerifyError(extensionId, 'Native host responded but setup incomplete.');
+        }
+    } catch (e) {
+        showVerifyError(extensionId, e.message);
+    }
+}
+
+function showVerifyError(extensionId, errorMsg) {
+    const verifyBtn = document.getElementById('verifyInstallBtn');
+    if (verifyBtn) {
+        verifyBtn.outerHTML = `
+            <div style="background: #fff3cd; padding: 12px; border-radius: 6px; margin-top: 12px;">
+                <p style="margin: 0 0 8px 0; font-weight: 600;">Setup not detected yet</p>
+                <p style="margin: 0; font-size: 13px; color: #666;">
+                    Make sure you completed the installer. If the issue persists, try the manual installation above.
+                </p>
+                <p style="margin: 8px 0 0 0; font-size: 11px; color: #999;">Error: ${errorMsg}</p>
+                <button onclick="location.reload()"
+                        style="margin-top: 12px; background: #4A90D9; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+                    Try Again
+                </button>
+            </div>
+        `;
+    }
 }
 
 // Initialize when DOM is ready
@@ -117,7 +170,7 @@ function initialize() {
 
     const installBtn = document.getElementById('installBtn');
     if (installBtn) {
-        installBtn.addEventListener('click', runInstaller);
+        installBtn.addEventListener('click', downloadInstaller);
     }
 }
 
