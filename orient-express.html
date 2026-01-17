@@ -1,0 +1,1430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Murder on the Orient Express - Interactive Mystery</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Crimson+Text:ital,wght@0,400;0,600;1,400&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --gold: #c9a227;
+            --dark-gold: #8b7355;
+            --burgundy: #722f37;
+            --dark-blue: #1a1a2e;
+            --cream: #f5f0e1;
+            --wood: #3d2314;
+            --velvet: #4a1c40;
+            --brass: #b5a642;
+        }
+
+        body {
+            font-family: 'Crimson Text', Georgia, serif;
+            background: linear-gradient(135deg, #0d0d1a 0%, #1a1a2e 50%, #0d0d1a 100%);
+            min-height: 100vh;
+            color: var(--cream);
+            overflow-x: hidden;
+        }
+
+        /* Art Deco Header */
+        header {
+            text-align: center;
+            padding: 20px;
+            background: linear-gradient(180deg, rgba(201,162,39,0.3) 0%, transparent 100%);
+            border-bottom: 3px solid var(--gold);
+            position: relative;
+        }
+
+        header::before, header::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            width: 100px;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--gold), transparent);
+        }
+
+        header::before { left: 20px; }
+        header::after { right: 20px; }
+
+        h1 {
+            font-family: 'Playfair Display', serif;
+            font-size: 2.5em;
+            color: var(--gold);
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+            letter-spacing: 4px;
+            text-transform: uppercase;
+        }
+
+        .subtitle {
+            font-style: italic;
+            color: var(--dark-gold);
+            margin-top: 5px;
+        }
+
+        /* Main Game Container */
+        .game-container {
+            display: grid;
+            grid-template-columns: 250px 1fr 280px;
+            gap: 15px;
+            padding: 15px;
+            max-width: 1600px;
+            margin: 0 auto;
+            min-height: calc(100vh - 100px);
+        }
+
+        /* Side Panels */
+        .panel {
+            background: linear-gradient(145deg, rgba(61,35,20,0.9), rgba(26,26,46,0.95));
+            border: 2px solid var(--gold);
+            border-radius: 5px;
+            padding: 15px;
+            position: relative;
+        }
+
+        .panel::before {
+            content: '';
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            right: 5px;
+            bottom: 5px;
+            border: 1px solid rgba(201,162,39,0.3);
+            pointer-events: none;
+        }
+
+        .panel h2 {
+            font-family: 'Playfair Display', serif;
+            color: var(--gold);
+            text-align: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--dark-gold);
+            font-size: 1.2em;
+            letter-spacing: 2px;
+        }
+
+        /* Route Map */
+        .route-map {
+            height: 180px;
+            position: relative;
+            margin-bottom: 20px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 5px;
+            padding: 10px;
+        }
+
+        .route-line {
+            position: absolute;
+            top: 50%;
+            left: 10%;
+            right: 10%;
+            height: 4px;
+            background: var(--dark-gold);
+            transform: translateY(-50%);
+        }
+
+        .route-progress {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            background: var(--gold);
+            width: 0%;
+            transition: width 1s ease;
+        }
+
+        .station {
+            position: absolute;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            cursor: pointer;
+            transition: transform 0.3s;
+        }
+
+        .station:hover {
+            transform: translate(-50%, -50%) scale(1.1);
+        }
+
+        .station-dot {
+            width: 16px;
+            height: 16px;
+            background: var(--dark-gold);
+            border: 3px solid var(--gold);
+            border-radius: 50%;
+            margin: 0 auto 5px;
+            transition: all 0.3s;
+        }
+
+        .station.visited .station-dot {
+            background: var(--gold);
+            box-shadow: 0 0 10px var(--gold);
+        }
+
+        .station.current .station-dot {
+            background: #fff;
+            box-shadow: 0 0 15px var(--gold), 0 0 30px var(--gold);
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+        }
+
+        .station-name {
+            font-size: 0.7em;
+            color: var(--cream);
+            white-space: nowrap;
+        }
+
+        /* Time Display */
+        .time-display {
+            text-align: center;
+            padding: 15px;
+            background: rgba(0,0,0,0.4);
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+
+        .time-display .time {
+            font-family: 'Playfair Display', serif;
+            font-size: 2em;
+            color: var(--gold);
+        }
+
+        .time-display .date {
+            font-size: 0.9em;
+            color: var(--dark-gold);
+        }
+
+        /* Character List */
+        .character-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .character-item {
+            display: flex;
+            align-items: center;
+            padding: 8px;
+            margin-bottom: 8px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+            border: 1px solid transparent;
+        }
+
+        .character-item:hover {
+            background: rgba(201,162,39,0.2);
+            border-color: var(--gold);
+        }
+
+        .character-item.selected {
+            background: rgba(201,162,39,0.3);
+            border-color: var(--gold);
+        }
+
+        .character-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            margin-right: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5em;
+            border: 2px solid var(--gold);
+        }
+
+        .character-info {
+            flex: 1;
+        }
+
+        .character-name {
+            font-weight: 600;
+            font-size: 0.9em;
+        }
+
+        .character-title {
+            font-size: 0.75em;
+            color: var(--dark-gold);
+            font-style: italic;
+        }
+
+        .character-location {
+            font-size: 0.7em;
+            color: var(--brass);
+        }
+
+        /* Train Container */
+        .train-section {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .train-container {
+            flex: 1;
+            background: rgba(0,0,0,0.3);
+            border: 2px solid var(--gold);
+            border-radius: 10px;
+            padding: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .train-title {
+            text-align: center;
+            font-family: 'Playfair Display', serif;
+            color: var(--gold);
+            margin-bottom: 15px;
+            font-size: 1.1em;
+        }
+
+        /* Train Cars Grid */
+        .train-layout {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            height: calc(100% - 40px);
+        }
+
+        .train-car {
+            background: linear-gradient(180deg, var(--wood) 0%, #2a1810 100%);
+            border: 2px solid var(--brass);
+            border-radius: 8px;
+            padding: 10px;
+            position: relative;
+            min-height: 100px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .train-car:hover {
+            border-color: var(--gold);
+            box-shadow: 0 0 15px rgba(201,162,39,0.3);
+        }
+
+        .train-car.selected {
+            border-color: var(--gold);
+            box-shadow: 0 0 20px rgba(201,162,39,0.5), inset 0 0 30px rgba(201,162,39,0.1);
+        }
+
+        .car-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid var(--dark-gold);
+        }
+
+        .car-name {
+            font-family: 'Playfair Display', serif;
+            color: var(--gold);
+            font-size: 0.9em;
+        }
+
+        .car-icon {
+            font-size: 1.2em;
+        }
+
+        .car-compartments {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+        }
+
+        .compartment {
+            background: rgba(0,0,0,0.4);
+            border: 1px solid var(--dark-gold);
+            border-radius: 4px;
+            padding: 5px 8px;
+            min-width: 50px;
+            min-height: 45px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 3px;
+            align-content: flex-start;
+            position: relative;
+            transition: all 0.3s;
+        }
+
+        .compartment:hover {
+            border-color: var(--gold);
+            background: rgba(201,162,39,0.1);
+        }
+
+        .compartment.crime-scene {
+            border-color: var(--burgundy);
+            background: rgba(114,47,55,0.3);
+            animation: crime-pulse 2s infinite;
+        }
+
+        @keyframes crime-pulse {
+            0%, 100% { box-shadow: 0 0 5px var(--burgundy); }
+            50% { box-shadow: 0 0 15px var(--burgundy); }
+        }
+
+        .compartment-label {
+            position: absolute;
+            bottom: 2px;
+            right: 4px;
+            font-size: 0.6em;
+            color: var(--dark-gold);
+        }
+
+        /* Character Tokens in Train */
+        .character-token {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9em;
+            border: 2px solid var(--gold);
+            cursor: pointer;
+            transition: all 0.3s;
+            position: relative;
+            z-index: 10;
+        }
+
+        .character-token:hover {
+            transform: scale(1.2);
+            z-index: 20;
+        }
+
+        .character-token.moving {
+            animation: token-move 0.5s ease;
+        }
+
+        @keyframes token-move {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.3); }
+            100% { transform: scale(1); }
+        }
+
+        .character-token.victim {
+            filter: grayscale(100%);
+            opacity: 0.6;
+        }
+
+        .character-token.suspect {
+            box-shadow: 0 0 10px rgba(255,0,0,0.5);
+        }
+
+        /* Investigation Panel */
+        .investigation-panel {
+            max-height: none;
+        }
+
+        .clue-section {
+            margin-bottom: 15px;
+        }
+
+        .clue-section h3 {
+            color: var(--gold);
+            font-size: 0.9em;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .clue-list {
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .clue-item {
+            padding: 8px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 4px;
+            margin-bottom: 5px;
+            font-size: 0.85em;
+            border-left: 3px solid var(--gold);
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .clue-item:hover {
+            background: rgba(201,162,39,0.2);
+        }
+
+        .clue-item.new {
+            animation: clue-glow 1s ease;
+        }
+
+        @keyframes clue-glow {
+            0% { box-shadow: 0 0 20px var(--gold); }
+            100% { box-shadow: none; }
+        }
+
+        /* Action Buttons */
+        .action-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 15px;
+        }
+
+        .action-btn {
+            padding: 10px 15px;
+            background: linear-gradient(180deg, var(--burgundy), #4a1a22);
+            border: 2px solid var(--gold);
+            color: var(--cream);
+            font-family: 'Playfair Display', serif;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-size: 0.85em;
+        }
+
+        .action-btn:hover {
+            background: linear-gradient(180deg, #8a3a42, var(--burgundy));
+            box-shadow: 0 0 15px rgba(201,162,39,0.5);
+        }
+
+        .action-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Dialog Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal {
+            background: linear-gradient(145deg, var(--wood), var(--dark-blue));
+            border: 3px solid var(--gold);
+            border-radius: 10px;
+            padding: 25px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        .modal h3 {
+            font-family: 'Playfair Display', serif;
+            color: var(--gold);
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            background: none;
+            border: none;
+            color: var(--gold);
+            font-size: 1.5em;
+            cursor: pointer;
+        }
+
+        .dialog-text {
+            line-height: 1.6;
+            margin-bottom: 15px;
+        }
+
+        .dialog-speaker {
+            color: var(--gold);
+            font-weight: 600;
+        }
+
+        .dialog-choices {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .dialog-choice {
+            padding: 10px 15px;
+            background: rgba(0,0,0,0.4);
+            border: 1px solid var(--dark-gold);
+            color: var(--cream);
+            text-align: left;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: all 0.3s;
+        }
+
+        .dialog-choice:hover {
+            border-color: var(--gold);
+            background: rgba(201,162,39,0.2);
+        }
+
+        /* Notebook */
+        .notebook {
+            background: var(--cream);
+            color: var(--dark-blue);
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Crimson Text', serif;
+            line-height: 1.8;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .notebook-entry {
+            padding: 5px 0;
+            border-bottom: 1px dashed #ccc;
+        }
+
+        .notebook-time {
+            font-size: 0.8em;
+            color: #666;
+        }
+
+        /* Game Controls */
+        .game-controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+            padding: 10px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 5px;
+        }
+
+        .control-btn {
+            flex: 1;
+            padding: 8px;
+            background: rgba(201,162,39,0.2);
+            border: 1px solid var(--gold);
+            color: var(--cream);
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 0.85em;
+            transition: all 0.3s;
+        }
+
+        .control-btn:hover {
+            background: rgba(201,162,39,0.4);
+        }
+
+        /* Accusation Panel */
+        .accusation-panel {
+            display: none;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .accusation-panel.active {
+            display: block;
+        }
+
+        .suspect-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin: 15px 0;
+        }
+
+        .suspect-choice {
+            padding: 15px 10px;
+            background: rgba(0,0,0,0.4);
+            border: 2px solid var(--dark-gold);
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .suspect-choice:hover {
+            border-color: var(--gold);
+            background: rgba(201,162,39,0.2);
+        }
+
+        .suspect-choice.selected {
+            border-color: var(--burgundy);
+            background: rgba(114,47,55,0.4);
+        }
+
+        .suspect-choice .emoji {
+            font-size: 2em;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        /* Scrollbar Styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.3);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--dark-gold);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--gold);
+        }
+
+        /* Responsive */
+        @media (max-width: 1200px) {
+            .game-container {
+                grid-template-columns: 1fr;
+            }
+
+            .panel {
+                order: 2;
+            }
+
+            .train-section {
+                order: 1;
+            }
+        }
+
+        /* Toast Notification */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: linear-gradient(145deg, var(--wood), var(--dark-blue));
+            border: 2px solid var(--gold);
+            padding: 15px 25px;
+            border-radius: 5px;
+            color: var(--cream);
+            opacity: 0;
+            transition: all 0.5s ease;
+            z-index: 2000;
+        }
+
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+
+        /* Poirot indicator */
+        .poirot-token {
+            box-shadow: 0 0 15px var(--gold), 0 0 30px rgba(201,162,39,0.5);
+            border-width: 3px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Murder on the Orient Express</h1>
+        <p class="subtitle">An Interactive Mystery by Agatha Christie</p>
+    </header>
+
+    <div class="game-container">
+        <!-- Left Panel - Characters & Route -->
+        <div class="panel">
+            <h2>Journey Progress</h2>
+
+            <div class="route-map">
+                <div class="route-line">
+                    <div class="route-progress" id="routeProgress"></div>
+                </div>
+                <div class="station visited" style="left: 10%">
+                    <div class="station-dot"></div>
+                    <div class="station-name">Istanbul</div>
+                </div>
+                <div class="station visited" style="left: 25%">
+                    <div class="station-dot"></div>
+                    <div class="station-name">Sofia</div>
+                </div>
+                <div class="station current" style="left: 40%">
+                    <div class="station-dot"></div>
+                    <div class="station-name">Belgrade</div>
+                </div>
+                <div class="station" style="left: 55%">
+                    <div class="station-dot"></div>
+                    <div class="station-name">Vinkovci</div>
+                </div>
+                <div class="station" style="left: 70%">
+                    <div class="station-dot"></div>
+                    <div class="station-name">Brod</div>
+                </div>
+                <div class="station" style="left: 85%">
+                    <div class="station-dot"></div>
+                    <div class="station-name">Calais</div>
+                </div>
+            </div>
+
+            <div class="time-display">
+                <div class="date">December 1934</div>
+                <div class="time" id="gameTime">11:45 PM</div>
+                <div class="status" id="trainStatus">Train stopped - Snowdrift</div>
+            </div>
+
+            <h2>Passengers</h2>
+            <div class="character-list" id="characterList">
+                <!-- Characters populated by JS -->
+            </div>
+        </div>
+
+        <!-- Center - Train Layout -->
+        <div class="train-section">
+            <div class="train-container">
+                <div class="train-title">Calais Coach - Compagnie Internationale des Wagons-Lits</div>
+                <div class="train-layout" id="trainLayout">
+                    <!-- Train cars populated by JS -->
+                </div>
+            </div>
+            <div class="game-controls">
+                <button class="control-btn" onclick="advanceTime()">Advance Time</button>
+                <button class="control-btn" onclick="searchCompartment()">Search Area</button>
+                <button class="control-btn" onclick="openAccusation()">Make Accusation</button>
+            </div>
+        </div>
+
+        <!-- Right Panel - Investigation -->
+        <div class="panel investigation-panel">
+            <h2>Investigation</h2>
+
+            <div class="clue-section">
+                <h3>Evidence Collected</h3>
+                <div class="clue-list" id="clueList">
+                    <div class="clue-item">The victim is Samuel Ratchett, found stabbed in Compartment 2.</div>
+                </div>
+            </div>
+
+            <div class="clue-section">
+                <h3>Detective's Notebook</h3>
+                <div class="notebook" id="notebook">
+                    <div class="notebook-entry">
+                        <span class="notebook-time">11:00 PM</span> - Boarded the Orient Express at Istanbul.
+                    </div>
+                    <div class="notebook-entry">
+                        <span class="notebook-time">11:30 PM</span> - Train stopped due to heavy snowfall near Vinkovci.
+                    </div>
+                    <div class="notebook-entry">
+                        <span class="notebook-time">11:45 PM</span> - Discovery: Mr. Ratchett found dead in his compartment.
+                    </div>
+                </div>
+            </div>
+
+            <div class="action-buttons">
+                <button class="action-btn" id="interrogateBtn" onclick="interrogateCharacter()">
+                    Interrogate Selected
+                </button>
+                <button class="action-btn" onclick="reviewEvidence()">
+                    Review All Evidence
+                </button>
+                <button class="action-btn" onclick="showSolution()">
+                    Reveal Solution
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dialog Modal -->
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="modal">
+            <button class="modal-close" onclick="closeModal()">&times;</button>
+            <h3 id="modalTitle">Interrogation</h3>
+            <div id="modalContent">
+                <!-- Dynamic content -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div class="toast" id="toast"></div>
+
+    <script>
+        // Character Data - based on the novel
+        const characters = [
+            { id: 'poirot', name: 'Hercule Poirot', title: 'Belgian Detective', emoji: '🔎', color: '#c9a227', location: 'corridor1', isPlayer: true },
+            { id: 'ratchett', name: 'Samuel Ratchett', title: 'The Victim', emoji: '💀', color: '#722f37', location: 'comp2', isVictim: true },
+            { id: 'bouc', name: 'M. Bouc', title: 'Director of the Line', emoji: '🎩', color: '#4a6fa5', location: 'dining' },
+            { id: 'constantine', name: 'Dr. Constantine', title: 'Greek Doctor', emoji: '⚕️', color: '#5a8f7b', location: 'dining' },
+            { id: 'hubbard', name: 'Mrs. Hubbard', title: 'American Widow', emoji: '👵', color: '#d4a5a5', location: 'comp3' },
+            { id: 'debenham', name: 'Mary Debenham', title: 'English Governess', emoji: '👩', color: '#8fbc8f', location: 'comp11' },
+            { id: 'arbuthnot', name: 'Col. Arbuthnot', title: 'British Colonel', emoji: '🎖️', color: '#8b4513', location: 'comp15' },
+            { id: 'princess', name: 'Princess Dragomiroff', title: 'Russian Princess', emoji: '👑', color: '#9370db', location: 'comp14' },
+            { id: 'count', name: 'Count Andrenyi', title: 'Hungarian Diplomat', emoji: '🏛️', color: '#4682b4', location: 'comp12' },
+            { id: 'countess', name: 'Countess Andrenyi', title: 'Hungarian Countess', emoji: '💃', color: '#db7093', location: 'comp12' },
+            { id: 'hardman', name: 'Cyrus Hardman', title: 'American Detective', emoji: '🕵️', color: '#708090', location: 'comp16' },
+            { id: 'masterman', name: 'Edward Masterman', title: 'English Valet', emoji: '🤵', color: '#2f4f4f', location: 'comp4' },
+            { id: 'hildegarde', name: 'Hildegarde Schmidt', title: 'German Maid', emoji: '👩‍🦳', color: '#deb887', location: 'comp10' },
+            { id: 'macqueen', name: 'Hector MacQueen', title: 'Secretary', emoji: '📝', color: '#6b8e23', location: 'comp6' },
+            { id: 'foscarelli', name: 'Antonio Foscarelli', title: 'Italian-American', emoji: '🚗', color: '#cd853f', location: 'comp5' },
+            { id: 'greta', name: 'Greta Ohlsson', title: 'Swedish Nurse', emoji: '🏥', color: '#87ceeb', location: 'comp9' }
+        ];
+
+        // Train Layout
+        const trainCars = [
+            {
+                id: 'dining',
+                name: 'Dining Car',
+                icon: '🍽️',
+                compartments: [
+                    { id: 'dining', label: 'Dining Area', wide: true }
+                ]
+            },
+            {
+                id: 'corridor1',
+                name: 'Corridor (Odd Side)',
+                icon: '🚶',
+                compartments: [
+                    { id: 'comp1', label: '1' },
+                    { id: 'comp3', label: '3' },
+                    { id: 'comp5', label: '5' },
+                    { id: 'comp7', label: '7' },
+                    { id: 'comp9', label: '9' },
+                    { id: 'comp11', label: '11' },
+                    { id: 'corridor1', label: 'Corridor', wide: true }
+                ]
+            },
+            {
+                id: 'sleeper1',
+                name: 'Sleeping Car (Even Side)',
+                icon: '🛏️',
+                compartments: [
+                    { id: 'comp2', label: '2', crimeScene: true },
+                    { id: 'comp4', label: '4' },
+                    { id: 'comp6', label: '6' },
+                    { id: 'comp8', label: '8' },
+                    { id: 'comp10', label: '10' },
+                    { id: 'comp12', label: '12' },
+                    { id: 'corridor2', label: 'Corridor', wide: true }
+                ]
+            },
+            {
+                id: 'sleeper2',
+                name: 'Sleeping Car (Premium)',
+                icon: '✨',
+                compartments: [
+                    { id: 'comp13', label: '13' },
+                    { id: 'comp14', label: '14' },
+                    { id: 'comp15', label: '15' },
+                    { id: 'comp16', label: '16' },
+                    { id: 'corridor3', label: 'Corridor', wide: true }
+                ]
+            }
+        ];
+
+        // Clues and Evidence
+        const clues = [
+            { id: 'watch', text: 'A broken watch stopped at 1:15 AM found in the victim\'s compartment.', location: 'comp2', found: false },
+            { id: 'handkerchief', text: 'A fine handkerchief embroidered with the initial "H".', location: 'comp2', found: false },
+            { id: 'pipecleaner', text: 'A pipe cleaner, suggesting a pipe smoker visited the compartment.', location: 'comp2', found: false },
+            { id: 'button', text: 'A button from a conductor\'s uniform.', location: 'corridor1', found: false },
+            { id: 'kimono', text: 'A scarlet kimono seen by Mrs. Hubbard.', location: 'comp3', found: false },
+            { id: 'letter', text: 'A burnt letter fragment mentioning "-member little Daisy Armstr-"', location: 'comp2', found: false },
+            { id: 'passport', text: 'Ratchett\'s passport reveals his real name: Cassetti.', location: 'comp2', found: false },
+            { id: 'wounds', text: 'Dr. Constantine notes 12 stab wounds of varying depth and angle.', location: 'comp2', found: false }
+        ];
+
+        // Dialog content for interrogations
+        const dialogs = {
+            hubbard: {
+                name: 'Mrs. Hubbard',
+                text: '"Oh, it was simply dreadful! I heard a commotion in the night, and someone was in my compartment! I saw a scarlet kimono disappearing through the connecting door!"',
+                clue: 'kimono'
+            },
+            debenham: {
+                name: 'Mary Debenham',
+                text: '"I was asleep, Monsieur Poirot. I heard nothing unusual. The Colonel and I had been discussing... travel arrangements earlier in the evening, but I retired early."',
+                clue: null
+            },
+            arbuthnot: {
+                name: 'Colonel Arbuthnot',
+                text: '"Bad business, this. I was playing cards with MacQueen until late. After that, straight to bed. Military habits, you know."',
+                clue: 'pipecleaner'
+            },
+            princess: {
+                name: 'Princess Dragomiroff',
+                text: '"That man... Ratchett... there was something familiar about him. Something unpleasant. My maid Hildegarde was with me all evening."',
+                clue: null
+            },
+            hardman: {
+                name: 'Cyrus Hardman',
+                text: '"I\'ll level with you, Poirot. I\'m a private detective. Ratchett hired me as a bodyguard. Said someone was threatening him. Guess I failed at my job."',
+                clue: null
+            },
+            macqueen: {
+                name: 'Hector MacQueen',
+                text: '"Mr. Ratchett received threatening letters. He was scared, though he tried not to show it. I was his secretary for a year now. He paid well and asked few questions."',
+                clue: 'letter'
+            },
+            greta: {
+                name: 'Greta Ohlsson',
+                text: '"I am only a simple nurse. I was asleep. But... I did not like that man Ratchett. His eyes... they were cold like a dead fish."',
+                clue: null
+            },
+            bouc: {
+                name: 'M. Bouc',
+                text: '"Mon ami Poirot, this is a catastrophe! A murder on MY train! The reputation of the Compagnie! You must solve this before we reach the next station!"',
+                clue: null
+            },
+            constantine: {
+                name: 'Dr. Constantine',
+                text: '"The wounds are most peculiar. Twelve stab wounds, but varying in depth and direction. Some appear strong, others weak. It is as if multiple hands wielded the knife..."',
+                clue: 'wounds'
+            },
+            masterman: {
+                name: 'Edward Masterman',
+                text: '"I was Mr. Ratchett\'s valet. I attended to him at 9 PM as usual. He seemed nervous. Asked me to check the door lock twice."',
+                clue: 'watch'
+            },
+            hildegarde: {
+                name: 'Hildegarde Schmidt',
+                text: '"I serve the Princess for many years. That night, I heard a noise in the corridor. I looked out and saw a conductor walking away quickly."',
+                clue: 'button'
+            },
+            foscarelli: {
+                name: 'Antonio Foscarelli',
+                text: '"I sell cars in America. Was traveling back to see family. Ratchett? Never spoke to him. I keep to myself on trains."',
+                clue: null
+            },
+            count: {
+                name: 'Count Andrenyi',
+                text: '"My wife and I retired early. We heard nothing. She took her sleeping draught and slept through everything."',
+                clue: null
+            },
+            countess: {
+                name: 'Countess Andrenyi',
+                text: '"*speaks softly* I took a sleeping powder. I remember nothing of that night. My husband can confirm."',
+                clue: 'handkerchief'
+            }
+        };
+
+        // Game State
+        let gameState = {
+            currentTime: { hours: 23, minutes: 45 },
+            selectedCharacter: null,
+            selectedCompartment: null,
+            foundClues: ['initial'],
+            interrogated: [],
+            routeProgress: 35,
+            gamePhase: 'investigation' // investigation, accusation, solved
+        };
+
+        // Initialize the game
+        function initGame() {
+            renderCharacterList();
+            renderTrainLayout();
+            updateRouteProgress();
+        }
+
+        // Render character list in sidebar
+        function renderCharacterList() {
+            const list = document.getElementById('characterList');
+            list.innerHTML = '';
+
+            characters.forEach(char => {
+                if (char.isVictim) return; // Don't show victim in active list
+
+                const item = document.createElement('div');
+                item.className = `character-item ${gameState.selectedCharacter === char.id ? 'selected' : ''}`;
+                item.onclick = () => selectCharacter(char.id);
+
+                const locationName = getLocationName(char.location);
+
+                item.innerHTML = `
+                    <div class="character-avatar" style="background: ${char.color}">${char.emoji}</div>
+                    <div class="character-info">
+                        <div class="character-name">${char.name}</div>
+                        <div class="character-title">${char.title}</div>
+                        <div class="character-location">${locationName}</div>
+                    </div>
+                `;
+                list.appendChild(item);
+            });
+        }
+
+        // Get readable location name
+        function getLocationName(locId) {
+            if (locId === 'dining') return 'Dining Car';
+            if (locId.startsWith('corridor')) return 'Corridor';
+            if (locId.startsWith('comp')) return `Compartment ${locId.replace('comp', '')}`;
+            return locId;
+        }
+
+        // Render train layout
+        function renderTrainLayout() {
+            const layout = document.getElementById('trainLayout');
+            layout.innerHTML = '';
+
+            trainCars.forEach(car => {
+                const carDiv = document.createElement('div');
+                carDiv.className = `train-car ${gameState.selectedCompartment && car.compartments.find(c => c.id === gameState.selectedCompartment) ? 'selected' : ''}`;
+
+                let compartmentsHtml = car.compartments.map(comp => {
+                    const charsHere = characters.filter(c => c.location === comp.id);
+                    const tokensHtml = charsHere.map(c => `
+                        <div class="character-token ${c.isPlayer ? 'poirot-token' : ''} ${c.isVictim ? 'victim' : ''}"
+                             style="background: ${c.color}"
+                             title="${c.name}"
+                             onclick="event.stopPropagation(); selectCharacter('${c.id}')">
+                            ${c.emoji}
+                        </div>
+                    `).join('');
+
+                    return `
+                        <div class="compartment ${comp.crimeScene ? 'crime-scene' : ''} ${comp.wide ? 'wide' : ''}"
+                             style="${comp.wide ? 'flex: 1; min-width: 100px;' : ''}"
+                             onclick="selectCompartment('${comp.id}')">
+                            ${tokensHtml}
+                            <span class="compartment-label">${comp.label}</span>
+                        </div>
+                    `;
+                }).join('');
+
+                carDiv.innerHTML = `
+                    <div class="car-header">
+                        <span class="car-name">${car.name}</span>
+                        <span class="car-icon">${car.icon}</span>
+                    </div>
+                    <div class="car-compartments">
+                        ${compartmentsHtml}
+                    </div>
+                `;
+
+                layout.appendChild(carDiv);
+            });
+        }
+
+        // Select a character
+        function selectCharacter(charId) {
+            gameState.selectedCharacter = charId;
+            renderCharacterList();
+            renderTrainLayout();
+
+            const char = characters.find(c => c.id === charId);
+            if (char && !char.isVictim && !char.isPlayer) {
+                document.getElementById('interrogateBtn').disabled = false;
+            } else {
+                document.getElementById('interrogateBtn').disabled = true;
+            }
+        }
+
+        // Select a compartment
+        function selectCompartment(compId) {
+            gameState.selectedCompartment = compId;
+            renderTrainLayout();
+
+            // Move Poirot to this location
+            const poirot = characters.find(c => c.id === 'poirot');
+            if (poirot && poirot.location !== compId) {
+                poirot.location = compId;
+                renderTrainLayout();
+                addNotebookEntry(`Moved to ${getLocationName(compId)}.`);
+            }
+        }
+
+        // Search current compartment for clues
+        function searchCompartment() {
+            const poirot = characters.find(c => c.id === 'poirot');
+            const currentLocation = poirot.location;
+
+            const clueHere = clues.find(c => c.location === currentLocation && !c.found);
+
+            if (clueHere) {
+                clueHere.found = true;
+                gameState.foundClues.push(clueHere.id);
+
+                // Add to clue list
+                const clueList = document.getElementById('clueList');
+                const clueDiv = document.createElement('div');
+                clueDiv.className = 'clue-item new';
+                clueDiv.textContent = clueHere.text;
+                clueList.appendChild(clueDiv);
+
+                addNotebookEntry(`Found evidence: ${clueHere.text.substring(0, 50)}...`);
+                showToast('New evidence discovered!');
+            } else {
+                showToast('No new evidence found here.');
+            }
+        }
+
+        // Interrogate selected character
+        function interrogateCharacter() {
+            if (!gameState.selectedCharacter) return;
+
+            const char = characters.find(c => c.id === gameState.selectedCharacter);
+            if (!char || char.isVictim || char.isPlayer) return;
+
+            const dialog = dialogs[char.id];
+            if (!dialog) {
+                showToast(`${char.name} has nothing more to say.`);
+                return;
+            }
+
+            // Show dialog modal
+            document.getElementById('modalTitle').textContent = `Interrogation: ${dialog.name}`;
+            document.getElementById('modalContent').innerHTML = `
+                <div class="dialog-text">
+                    <span class="dialog-speaker">${dialog.name}:</span> ${dialog.text}
+                </div>
+                <div class="dialog-choices">
+                    <button class="dialog-choice" onclick="askFollowUp('${char.id}', 'alibi')">Ask about their alibi</button>
+                    <button class="dialog-choice" onclick="askFollowUp('${char.id}', 'ratchett')">Ask about Ratchett</button>
+                    <button class="dialog-choice" onclick="askFollowUp('${char.id}', 'others')">Ask about other passengers</button>
+                    <button class="dialog-choice" onclick="closeModal()">End interrogation</button>
+                </div>
+            `;
+            document.getElementById('modalOverlay').classList.add('active');
+
+            // Record interrogation
+            if (!gameState.interrogated.includes(char.id)) {
+                gameState.interrogated.push(char.id);
+                addNotebookEntry(`Interrogated ${char.name}.`);
+
+                // Unlock clue if character has one
+                if (dialog.clue) {
+                    const clue = clues.find(c => c.id === dialog.clue);
+                    if (clue && !clue.found) {
+                        clue.found = true;
+                        gameState.foundClues.push(clue.id);
+
+                        const clueList = document.getElementById('clueList');
+                        const clueDiv = document.createElement('div');
+                        clueDiv.className = 'clue-item new';
+                        clueDiv.textContent = clue.text;
+                        clueList.appendChild(clueDiv);
+                    }
+                }
+            }
+        }
+
+        // Follow-up questions
+        function askFollowUp(charId, topic) {
+            const char = characters.find(c => c.id === charId);
+            let response = '';
+
+            switch(topic) {
+                case 'alibi':
+                    response = `"My alibi? I told you where I was. Check with the others if you don't believe me."`;
+                    break;
+                case 'ratchett':
+                    response = `"Ratchett... there was something unsettling about that man. I tried to avoid him."`;
+                    break;
+                case 'others':
+                    response = `"The other passengers? We all keep to ourselves mostly. This is not a social voyage."`;
+                    break;
+            }
+
+            document.getElementById('modalContent').innerHTML = `
+                <div class="dialog-text">
+                    <span class="dialog-speaker">${char.name}:</span> ${response}
+                </div>
+                <div class="dialog-choices">
+                    <button class="dialog-choice" onclick="closeModal()">End interrogation</button>
+                </div>
+            `;
+        }
+
+        // Review all evidence
+        function reviewEvidence() {
+            const foundCluesList = clues.filter(c => c.found);
+
+            let evidenceHtml = foundCluesList.length > 0
+                ? foundCluesList.map(c => `<div class="clue-item">${c.text}</div>`).join('')
+                : '<p>No evidence collected yet.</p>';
+
+            document.getElementById('modalTitle').textContent = 'Evidence Review';
+            document.getElementById('modalContent').innerHTML = `
+                <div class="dialog-text">
+                    <p><strong>Collected Evidence (${foundCluesList.length}/${clues.length}):</strong></p>
+                    ${evidenceHtml}
+                    <p style="margin-top: 15px; color: var(--dark-gold);">
+                        <em>Passengers interrogated: ${gameState.interrogated.length}/${Object.keys(dialogs).length}</em>
+                    </p>
+                </div>
+            `;
+            document.getElementById('modalOverlay').classList.add('active');
+        }
+
+        // Open accusation panel
+        function openAccusation() {
+            const suspects = characters.filter(c => !c.isVictim && !c.isPlayer);
+
+            let suspectsHtml = suspects.map(s => `
+                <div class="suspect-choice" onclick="makeAccusation('${s.id}')">
+                    <span class="emoji">${s.emoji}</span>
+                    <div>${s.name}</div>
+                </div>
+            `).join('');
+
+            document.getElementById('modalTitle').textContent = 'Make Your Accusation';
+            document.getElementById('modalContent').innerHTML = `
+                <div class="dialog-text">
+                    <p>Who murdered Samuel Ratchett?</p>
+                    <p style="font-size: 0.9em; color: var(--dark-gold);">Choose carefully, Detective Poirot...</p>
+                </div>
+                <div class="suspect-grid">
+                    ${suspectsHtml}
+                </div>
+            `;
+            document.getElementById('modalOverlay').classList.add('active');
+        }
+
+        // Make final accusation
+        function makeAccusation(suspectId) {
+            // The twist: EVERYONE is guilty!
+            document.getElementById('modalTitle').textContent = 'The Truth Revealed';
+            document.getElementById('modalContent').innerHTML = `
+                <div class="dialog-text">
+                    <p><span class="dialog-speaker">Hercule Poirot:</span></p>
+                    <p>"Ah, but you see... the truth is far more extraordinary."</p>
+                    <p style="margin-top: 15px;">"Samuel Ratchett was in fact Cassetti, the man responsible for the kidnapping and murder of little Daisy Armstrong five years ago."</p>
+                    <p style="margin-top: 15px;">"Every passenger on this coach had a connection to the Armstrong family. The twelve stab wounds... represent the twelve jurors who would have convicted him, had he not escaped justice."</p>
+                    <p style="margin-top: 15px; color: var(--gold);"><strong>They ALL did it. Together. Justice was served by those whom the law had failed.</strong></p>
+                    <p style="margin-top: 20px; font-style: italic; color: var(--dark-gold);">"I offer two solutions: the complex truth, or the simple lie of a lone intruder. Which shall I present to the Yugoslav police?"</p>
+                </div>
+                <div class="dialog-choices">
+                    <button class="dialog-choice" onclick="endGame('truth')">Present the truth - All are guilty</button>
+                    <button class="dialog-choice" onclick="endGame('lie')">Present the lie - Unknown intruder escaped</button>
+                </div>
+            `;
+        }
+
+        // Show the solution
+        function showSolution() {
+            makeAccusation(null);
+        }
+
+        // End game
+        function endGame(choice) {
+            gameState.gamePhase = 'solved';
+
+            let ending = choice === 'truth'
+                ? `<p>You chose to reveal the truth. The passengers face the consequences of their vigilante justice, but history will remember them as those who brought Cassetti to account when the law could not.</p>`
+                : `<p>You chose the merciful lie. The case is closed as an unsolved murder by an unknown intruder. The passengers go free, their secret bond unbroken.</p>`;
+
+            document.getElementById('modalContent').innerHTML = `
+                <div class="dialog-text">
+                    <p><span class="dialog-speaker">Case Closed</span></p>
+                    ${ending}
+                    <p style="margin-top: 20px; text-align: center; color: var(--gold);">
+                        <strong>THE END</strong>
+                    </p>
+                    <p style="margin-top: 10px; font-style: italic; text-align: center;">
+                        "The impossible could not have happened, therefore the impossible must be possible in spite of appearances."<br>
+                        - Hercule Poirot
+                    </p>
+                </div>
+                <div class="dialog-choices">
+                    <button class="dialog-choice" onclick="location.reload()">Play Again</button>
+                </div>
+            `;
+        }
+
+        // Advance game time
+        function advanceTime() {
+            gameState.currentTime.minutes += 15;
+            if (gameState.currentTime.minutes >= 60) {
+                gameState.currentTime.minutes = 0;
+                gameState.currentTime.hours++;
+                if (gameState.currentTime.hours >= 24) {
+                    gameState.currentTime.hours = 0;
+                }
+            }
+
+            const timeStr = `${gameState.currentTime.hours.toString().padStart(2, '0')}:${gameState.currentTime.minutes.toString().padStart(2, '0')} ${gameState.currentTime.hours >= 12 ? 'PM' : 'AM'}`;
+            document.getElementById('gameTime').textContent = timeStr;
+
+            // Move some characters randomly
+            moveCharactersRandomly();
+
+            addNotebookEntry(`Time advanced to ${timeStr}.`);
+        }
+
+        // Random character movement
+        function moveCharactersRandomly() {
+            const movableChars = characters.filter(c => !c.isVictim && !c.isPlayer);
+            const locations = ['dining', 'corridor1', 'corridor2', 'corridor3', 'comp3', 'comp5', 'comp7', 'comp9', 'comp11', 'comp13', 'comp15'];
+
+            // Move 2-3 random characters
+            const numToMove = Math.floor(Math.random() * 2) + 2;
+            for (let i = 0; i < numToMove; i++) {
+                const char = movableChars[Math.floor(Math.random() * movableChars.length)];
+                const newLoc = locations[Math.floor(Math.random() * locations.length)];
+                char.location = newLoc;
+            }
+
+            renderCharacterList();
+            renderTrainLayout();
+        }
+
+        // Update route progress
+        function updateRouteProgress() {
+            document.getElementById('routeProgress').style.width = gameState.routeProgress + '%';
+        }
+
+        // Add notebook entry
+        function addNotebookEntry(text) {
+            const notebook = document.getElementById('notebook');
+            const entry = document.createElement('div');
+            entry.className = 'notebook-entry';
+
+            const timeStr = `${gameState.currentTime.hours.toString().padStart(2, '0')}:${gameState.currentTime.minutes.toString().padStart(2, '0')}`;
+            entry.innerHTML = `<span class="notebook-time">${timeStr}</span> - ${text}`;
+
+            notebook.appendChild(entry);
+            notebook.scrollTop = notebook.scrollHeight;
+        }
+
+        // Show toast notification
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.add('show');
+
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        // Close modal
+        function closeModal() {
+            document.getElementById('modalOverlay').classList.remove('active');
+        }
+
+        // Close modal on overlay click
+        document.getElementById('modalOverlay').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('modalOverlay')) {
+                closeModal();
+            }
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeModal();
+            if (e.key === 't') advanceTime();
+            if (e.key === 's') searchCompartment();
+            if (e.key === 'i' && gameState.selectedCharacter) interrogateCharacter();
+        });
+
+        // Initialize on load
+        window.onload = initGame;
+    </script>
+</body>
+</html>
