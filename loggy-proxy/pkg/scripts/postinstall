@@ -57,6 +57,10 @@ EOF
 
 chmod 644 "$HOSTS_DIR/$MANIFEST_NAME.json"
 
+# Trust the CA certificate
+echo "Trusting CA certificate..."
+"$BINARY_PATH" trust-cert || echo "Note: Could not auto-trust certificate. You may need to run: loggy-proxy trust-cert"
+
 echo "Loggy Proxy installed successfully!"
 echo "Manifest created at: $HOSTS_DIR/$MANIFEST_NAME.json"
 
