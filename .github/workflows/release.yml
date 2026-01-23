@@ -49,7 +49,7 @@ jobs:
           lipo -create -output loggy-proxy-darwin-universal loggy-proxy-darwin-arm64 loggy-proxy-darwin-amd64
 
       - name: Import signing certificate
-        if: env.APPLE_CERTIFICATE_BASE64 != ''
+        if: ${{ secrets.APPLE_CERTIFICATE_BASE64 != '' }}
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
