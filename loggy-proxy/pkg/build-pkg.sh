@@ -133,14 +133,47 @@ productbuild \
     --package-path "$BUILD_DIR" \
     "$BUILD_DIR/$PKG_NAME"
 
-# Move final package to project root
-mv "$BUILD_DIR/$PKG_NAME" "$PROJECT_DIR/$PKG_NAME"
+# Sign the package (if certificate identity is available)
+if [ -n "$SIGNING_IDENTITY" ]; then
+    echo "Signing package with identity: $SIGNING_IDENTITY"
+    productsign --sign "$SIGNING_IDENTITY" \
+        "$BUILD_DIR/$PKG_NAME" \
+        "$PROJECT_DIR/$PKG_NAME"
+    rm "$BUILD_DIR/$PKG_NAME"
+else
+    echo "No signing identity found, creating unsigned package"
+    mv "$BUILD_DIR/$PKG_NAME" "$PROJECT_DIR/$PKG_NAME"
+fi
+
+# Notarize (if credentials are available)
+if [ -n "$APPLE_ID" ] && [ -n "$APPLE_TEAM_ID" ] && [ -n "$APPLE_APP_PASSWORD" ]; then
+    echo "Submitting for notarization..."
+    xcrun notarytool submit "$PROJECT_DIR/$PKG_NAME" \
+        --apple-id "$APPLE_ID" \
+        --team-id "$APPLE_TEAM_ID" \
+        --password "$APPLE_APP_PASSWORD" \
+        --wait
+
+    echo "Stapling notarization ticket..."
+    xcrun stapler staple "$PROJECT_DIR/$PKG_NAME"
+    echo "Package signed and notarized successfully"
+else
+    echo "Notarization credentials not found, skipping notarization"
+fi
 
 echo ""
 echo "Package created: $PROJECT_DIR/$PKG_NAME"
 echo ""
 echo "To test locally:"
 echo "  sudo installer -pkg $PROJECT_DIR/$PKG_NAME -target /"
+
+# Verify signing status
+if [ -n "$SIGNING_IDENTITY" ]; then
+    echo ""
+    echo "To verify package signing:"
+    echo "  pkgutil --check-signature $PROJECT_DIR/$PKG_NAME"
+    echo "  spctl -a -vvv -t install $PROJECT_DIR/$PKG_NAME"
+fi
 
 # Clean up intermediate files
 rm -rf "$BUILD_DIR"
