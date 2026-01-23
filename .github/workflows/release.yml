@@ -75,10 +75,41 @@ jobs:
 
           security list-keychain -d user -s "$KEYCHAIN_PATH"
 
-          # Find signing identity (no -p flag since Installer certs aren't "codesigning" policy)
-          IDENTITY=$(security find-identity -v "$KEYCHAIN_PATH" | grep "Developer ID Installer" | head -1 | awk -F'"' '{print $2}')
-          echo "SIGNING_IDENTITY=$IDENTITY" >> $GITHUB_ENV
-          echo "Found signing identity: $IDENTITY"
+          # Find signing identities
+          echo "Available identities:"
+          security find-identity -v "$KEYCHAIN_PATH"
+
+          # Find Installer identity for .pkg signing
+          INSTALLER_IDENTITY=$(security find-identity -v "$KEYCHAIN_PATH" | grep "Developer ID Installer" | head -1 | awk -F'"' '{print $2}')
+          echo "SIGNING_IDENTITY=$INSTALLER_IDENTITY" >> $GITHUB_ENV
+          echo "Found Installer identity: $INSTALLER_IDENTITY"
+
+          # Find Application identity for binary signing
+          APP_IDENTITY=$(security find-identity -v "$KEYCHAIN_PATH" | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+          echo "APP_SIGNING_IDENTITY=$APP_IDENTITY" >> $GITHUB_ENV
+          echo "Found Application identity: $APP_IDENTITY"
+
+      - name: Sign binaries
+        if: env.APP_SIGNING_IDENTITY != ''
+        env:
+          APP_SIGNING_IDENTITY: ${{ env.APP_SIGNING_IDENTITY }}
+        working-directory: loggy-proxy
+        run: |
+          echo "Signing binaries with hardened runtime..."
+          codesign --force --options runtime --timestamp \
+            --sign "$APP_SIGNING_IDENTITY" \
+            loggy-proxy-darwin-arm64
+
+          codesign --force --options runtime --timestamp \
+            --sign "$APP_SIGNING_IDENTITY" \
+            loggy-proxy-darwin-amd64
+
+          codesign --force --options runtime --timestamp \
+            --sign "$APP_SIGNING_IDENTITY" \
+            loggy-proxy-darwin-universal
+
+          echo "Verifying signatures..."
+          codesign -vvv --deep --strict loggy-proxy-darwin-universal
 
       - name: Build .pkg installers
         env:
