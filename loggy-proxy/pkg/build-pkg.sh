@@ -148,11 +148,25 @@ fi
 # Notarize (if credentials are available)
 if [ -n "$APPLE_ID" ] && [ -n "$APPLE_TEAM_ID" ] && [ -n "$APPLE_APP_PASSWORD" ]; then
     echo "Submitting for notarization..."
-    xcrun notarytool submit "$PROJECT_DIR/$PKG_NAME" \
+    SUBMIT_OUTPUT=$(xcrun notarytool submit "$PROJECT_DIR/$PKG_NAME" \
         --apple-id "$APPLE_ID" \
         --team-id "$APPLE_TEAM_ID" \
         --password "$APPLE_APP_PASSWORD" \
-        --wait
+        --wait 2>&1)
+    echo "$SUBMIT_OUTPUT"
+
+    # Extract submission ID and check status
+    SUBMISSION_ID=$(echo "$SUBMIT_OUTPUT" | grep "id:" | head -1 | awk '{print $2}')
+    STATUS=$(echo "$SUBMIT_OUTPUT" | grep "status:" | tail -1 | awk '{print $2}')
+
+    if [ "$STATUS" = "Invalid" ] || [ "$STATUS" = "Rejected" ]; then
+        echo "Notarization failed. Fetching detailed log..."
+        xcrun notarytool log "$SUBMISSION_ID" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD"
+        exit 1
+    fi
 
     echo "Stapling notarization ticket..."
     xcrun stapler staple "$PROJECT_DIR/$PKG_NAME"
