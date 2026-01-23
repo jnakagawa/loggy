@@ -75,8 +75,8 @@ jobs:
 
           security list-keychain -d user -s "$KEYCHAIN_PATH"
 
-          # Find signing identity
-          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep "Developer ID Installer" | head -1 | awk -F'"' '{print $2}')
+          # Find signing identity (no -p flag since Installer certs aren't "codesigning" policy)
+          IDENTITY=$(security find-identity -v "$KEYCHAIN_PATH" | grep "Developer ID Installer" | head -1 | awk -F'"' '{print $2}')
           echo "SIGNING_IDENTITY=$IDENTITY" >> $GITHUB_ENV
           echo "Found signing identity: $IDENTITY"
 
