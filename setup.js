@@ -34,12 +34,12 @@ async function getLatestRelease() {
     return '1.0.0'; // Fallback version
 }
 
-// Download the .pkg installer
-async function downloadInstaller() {
+// Show the installer UI
+async function showInstaller() {
     const status = document.getElementById('installStatus');
-    const extensionId = document.getElementById('extensionId').textContent;
+    const extensionId = getExtensionId();
 
-    if (!extensionId || extensionId.includes('Not Found') || extensionId.includes('Loading')) {
+    if (!extensionId) {
         status.innerHTML = `
             <div style="background: #fff3cd; padding: 16px; border-radius: 8px; border: 1px solid #ffc107;">
                 <strong>Extension ID not found</strong>
@@ -48,12 +48,6 @@ async function downloadInstaller() {
         `;
         return;
     }
-
-    status.innerHTML = `
-        <div style="background: #e3f2fd; padding: 16px; border-radius: 8px; border: 1px solid #2196f3;">
-            <span style="font-size: 18px;">Fetching latest version...</span>
-        </div>
-    `;
 
     const version = await getLatestRelease();
     const downloadUrl = `https://github.com/${GITHUB_REPO}/releases/latest/download/loggy-proxy-${version}-macos-universal.pkg`;
@@ -97,12 +91,6 @@ async function downloadInstaller() {
             </details>
         </div>
     `;
-
-    // Start download automatically
-    setTimeout(() => {
-        const link = document.getElementById('downloadLink');
-        if (link) link.click();
-    }, 500);
 
     // Add verify button handler
     setTimeout(() => {
@@ -155,23 +143,22 @@ function showVerifyError(extensionId, errorMsg) {
                     Make sure you completed the installer. If the issue persists, try the manual installation above.
                 </p>
                 <p style="margin: 8px 0 0 0; font-size: 11px; color: #999;">Error: ${errorMsg}</p>
-                <button onclick="location.reload()"
+                <button id="retryBtn"
                         style="margin-top: 12px; background: #4A90D9; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
                     Try Again
                 </button>
             </div>
         `;
+        setTimeout(() => {
+            const retryBtn = document.getElementById('retryBtn');
+            if (retryBtn) retryBtn.addEventListener('click', () => location.reload());
+        }, 0);
     }
 }
 
 // Initialize when DOM is ready
 function initialize() {
-    getExtensionId();
-
-    const installBtn = document.getElementById('installBtn');
-    if (installBtn) {
-        installBtn.addEventListener('click', downloadInstaller);
-    }
+    showInstaller();
 }
 
 if (document.readyState === 'loading') {

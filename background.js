@@ -394,6 +394,43 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
       break;
 
+    case 'pingNativeHost':
+      console.log('[Analytics Logger] Attempting native host connection...');
+      try {
+        const port = chrome.runtime.connectNative('com.analytics_logger.proxy');
+        let responded = false;
+
+        port.onMessage.addListener((response) => {
+          console.log('[Analytics Logger] Native host responded:', response);
+          responded = true;
+          sendResponse({ success: true, response });
+          try { port.disconnect(); } catch (e) {}
+        });
+
+        port.onDisconnect.addListener(() => {
+          const error = chrome.runtime.lastError;
+          console.log('[Analytics Logger] Native host disconnected. Error:', error?.message);
+          if (!responded) {
+            sendResponse({ success: false, error: error?.message || 'Disconnected' });
+          }
+        });
+
+        port.postMessage({ action: 'ping' });
+        console.log('[Analytics Logger] Sent ping to native host');
+
+        setTimeout(() => {
+          if (!responded) {
+            console.log('[Analytics Logger] Native host timeout');
+            sendResponse({ success: false, error: 'Timeout' });
+            try { port.disconnect(); } catch (e) {}
+          }
+        }, 2000);
+      } catch (err) {
+        console.error('[Analytics Logger] Native host error:', err);
+        sendResponse({ success: false, error: err.message });
+      }
+      return true;
+
     case 'updateSettings':
       const oldUseProxy = settings.useProxy;
       settings = { ...settings, ...message.settings };

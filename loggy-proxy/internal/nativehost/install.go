@@ -29,10 +29,18 @@ func Install(extensionID string) error {
 		return fmt.Errorf("failed to get absolute path: %w", err)
 	}
 
+	// Create wrapper script (fixes Chrome native messaging communication issues)
+	wrapperPath := filepath.Join(filepath.Dir(execPath), "loggy-proxy-host")
+	wrapperContent := fmt.Sprintf("#!/bin/bash\nexec %s \"$@\"\n", execPath)
+	if err := os.WriteFile(wrapperPath, []byte(wrapperContent), 0755); err != nil {
+		return fmt.Errorf("failed to create wrapper script: %w", err)
+	}
+	fmt.Printf("Wrapper script created: %s\n", wrapperPath)
+
 	manifest := NativeHostManifest{
 		Name:        "com.analytics_logger.proxy",
 		Description: "Loggy Analytics Proxy Control",
-		Path:        execPath,
+		Path:        wrapperPath,
 		Type:        "stdio",
 		AllowedOrigins: []string{
 			fmt.Sprintf("chrome-extension://%s/", extensionID),

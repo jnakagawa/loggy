@@ -5,12 +5,20 @@
 set -e
 
 BINARY_PATH="/usr/local/bin/loggy-proxy"
+WRAPPER_PATH="/usr/local/bin/loggy-proxy-host"
 MANIFEST_NAME="com.analytics_logger.proxy"
 HOSTS_DIR="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
 EXTENSIONS_DIR="$HOME/Library/Application Support/Google/Chrome/Default/Extensions"
 
 # Create native messaging hosts directory
 mkdir -p "$HOSTS_DIR"
+
+# Create wrapper script for native messaging (fixes Chrome communication issues)
+cat > "$WRAPPER_PATH" << 'WRAPPER_EOF'
+#!/bin/bash
+exec /usr/local/bin/loggy-proxy "$@"
+WRAPPER_EOF
+chmod +x "$WRAPPER_PATH"
 
 # Try to find the Loggy extension ID by searching Chrome's extensions
 find_extension_id() {
@@ -44,12 +52,12 @@ if [ -z "$EXTENSION_ID" ]; then
     EXTENSION_ID="PLACEHOLDER_EXTENSION_ID"
 fi
 
-# Create the native messaging host manifest
+# Create the native messaging host manifest (points to wrapper script)
 cat > "$HOSTS_DIR/$MANIFEST_NAME.json" << EOF
 {
   "name": "$MANIFEST_NAME",
   "description": "Loggy Analytics Proxy Control",
-  "path": "$BINARY_PATH",
+  "path": "$WRAPPER_PATH",
   "type": "stdio",
   "allowed_origins": ["chrome-extension://$EXTENSION_ID/"]
 }
